@@ -1,5 +1,6 @@
 #include "flutter_window.h"
 
+#include <dwmapi.h>
 #include <flutter/standard_method_codec.h>
 #include <flutter_windows.h>
 #include <shellapi.h>
