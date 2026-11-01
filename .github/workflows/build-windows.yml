@@ -30,7 +30,17 @@ jobs:
         run: flutter test
 
       - name: بناء الإصدار
-        run: flutter build windows --release
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          flutter build windows --release --verbose *> build-verbose.log
+          $code = $LASTEXITCODE
+          "=== exit: $code ===" | Out-File build-tail.txt
+          Get-Content build-verbose.log -Tail 150 | Out-File build-tail.txt -Append
+          Get-Content build-tail.txt
+          Write-Output "::error::BUILD_EXIT_$code"
+
 
       - name: رفع الناتج
         uses: actions/upload-artifact@v4
