@@ -1,0 +1,81 @@
+name: لقطات الواجهة
+
+# يُشغَّل يدويًا فقط: يبني التطبيق على ويندوز، يفتحه فعليًا، يلتقط لقطات
+# للشاشات الأربع، ويرفعها إلى docs/screenshots في الفرع الحالي.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  shots:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - run: flutter build windows --release
+
+      - name: تشغيل التطبيق والتقاط الشاشات
+        shell: pwsh
+        run: |
+          $exe = "build\windows\x64\runner\Release\convert.exe"
+          New-Item -ItemType Directory -Force -Path ..\docs\screenshots | Out-Null
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $shots = @(
+            @{ key = "";    file = "01-workspace.png"; wait = 14 },
+            @{ key = "^2";  file = "02-queue.png";     wait = 3 },
+            @{ key = "^3";  file = "03-tools.png";     wait = 3 },
+            @{ key = "^4";  file = "04-settings.png";  wait = 3 }
+          )
+          $proc = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 12
+          foreach ($shot in $shots) {
+            if ($shot.key -ne "") {
+              try {
+                $wshell = New-Object -ComObject wscript.shell
+                $null = $wshell.AppActivate($proc.Id)
+                Start-Sleep -Milliseconds 600
+                $wshell.SendKeys($shot.key)
+              } catch { Write-Output "sendkeys failed: $_" }
+              Start-Sleep -Seconds $shot.wait
+            }
+            $bmp = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+            $bmp.Save("$PWD\..\docs\screenshots\$($shot.file)", [System.Drawing.Imaging.ImageFormat]::Png)
+            $g.Dispose(); $bmp.Dispose()
+            Write-Output "captured $($shot.file)"
+          }
+          # النسخة الثانية يجب ألا تفتح نافذة جديدة: نتحقق ثم نغلق كل شيء.
+          $second = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 6
+          $count = (Get-Process convert -ErrorAction SilentlyContinue).Count
+          Write-Output "instances after second launch: $count"
+          if ($count -gt 1) { Write-Output "::warning::النسخة الثانية لم تُغلَق كما هو متوقع" }
+          Get-Process convert -ErrorAction SilentlyContinue | Stop-Process -Force
+
+      - name: رفع اللقطات إلى المستودع
+        shell: pwsh
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add docs/screenshots
+          git commit -m "docs: لقطات الواجهة من النسخة المبنية [skip ci]"
+          git push origin HEAD:${{ github.ref_name }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: docs/screenshots/

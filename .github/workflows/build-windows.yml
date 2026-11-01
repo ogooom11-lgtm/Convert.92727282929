@@ -33,6 +33,9 @@ jobs:
       - name: الاختبارات
         run: flutter test
 
+      - name: اختبار التكامل على ويندوز (نافذة حقيقية)
+        run: flutter test integration_test -d windows
+
       - name: بناء الإصدار
         if: always()
         shell: pwsh
