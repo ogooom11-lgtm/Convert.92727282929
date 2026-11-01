@@ -5,6 +5,10 @@ on:
     branches: [main, "arena/**"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   windows:
     name: بناء التطبيق (ويندوز)
@@ -40,7 +44,13 @@ jobs:
           "=== exit: $code ===" | Out-File -FilePath build-tail.txt -Encoding utf8
           Get-Content build-verbose.log -Tail 150 | Out-File -FilePath build-tail.txt -Append -Encoding utf8
           Get-Content build-tail.txt
-          Write-Output "::error::BUILD_EXIT_$code"
+          # ملخص الخطأ يظهر في صفحة التشغيل مباشرة (يُقرأ حتى لو كانت
+          # السجلات التفصيلية محجوبة).
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### نهاية سجل البناء"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '``````'
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value (Get-Content build-tail.txt -Raw)
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '``````'
+          exit $code
 
 
       # سجلات Actions محجوبة عن بعض الشبكات، لذا ننشر ملخص الفشل في تعليق
