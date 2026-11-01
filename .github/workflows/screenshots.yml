@@ -8,6 +8,10 @@ on:
     paths:
       - .github/workflows/screenshots.yml
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   shots:
     runs-on: windows-latest
@@ -88,3 +92,30 @@ jobs:
           name: screenshots
           path: screenshots/
           if-no-files-found: error
+
+      # نحفظ اللقطات داخل المستودع حتى تُرى من صفحة GitHub مباشرة.
+      - name: حفظ اللقطات في المستودع
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $repo = "${{ github.repository }}"
+          $branch = "${{ github.ref_name }}"
+          $files = Get-ChildItem "$env:GITHUB_WORKSPACE\screenshots" -Filter *.png -ErrorAction SilentlyContinue
+          if (-not $files) { throw "لا توجد لقطات لحفظها" }
+          foreach ($f in $files) {
+            $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($f.FullName))
+            $payload = @{
+              message = "docs: لقطة $($f.Name) من النسخة المبنية"
+              content = $b64
+              branch  = $branch
+            } | ConvertTo-Json -Compress
+            $payloadPath = Join-Path $env:RUNNER_TEMP "$($f.BaseName).json"
+            Set-Content -Path $payloadPath -Value $payload -Encoding utf8 -NoNewline
+            $path = "docs/screenshots/$($f.Name)"
+            gh api --method PUT "repos/$repo/contents/$path" --input $payloadPath | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "فشل حفظ $path" }
+            "saved $path" | Write-Output
+          }
