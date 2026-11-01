@@ -6,6 +6,7 @@ import '../core/capabilities.dart';
 import '../core/task_queue.dart';
 import 'pages/file_dialog.dart';
 import 'pages/queue_page.dart';
+import 'pages/selftest_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/task_queue_scope.dart';
 import 'pages/tools_page.dart';
@@ -13,7 +14,7 @@ import 'pages/workspace_page.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
-enum AppSection { workspace, queue, tools, settings }
+enum AppSection { workspace, queue, tools, selftest, settings }
 
 /// الهيكل: شريط جانبي ثابت + رأس + محتوى متحرك.
 class AppShell extends StatefulWidget {
@@ -216,6 +217,8 @@ class _AppShellState extends State<AppShell> {
             const SingleActivator(LogicalKeyboardKey.digit3, control: true):
                 () => _go(AppSection.tools),
             const SingleActivator(LogicalKeyboardKey.digit4, control: true):
+                () => _go(AppSection.selftest),
+            const SingleActivator(LogicalKeyboardKey.digit5, control: true):
                 () => _go(AppSection.settings),
           },
           child: Focus(
@@ -273,6 +276,7 @@ class _AppShellState extends State<AppShell> {
         AppSection.workspace => WorkspacePage(state: _state),
         AppSection.queue => QueuePage(state: _state),
         AppSection.tools => ToolsPage(state: _state),
+        AppSection.selftest => SelfTestPage(state: _state),
         AppSection.settings => SettingsPage(state: _state),
       };
 }
@@ -353,9 +357,18 @@ class _Sidebar extends StatelessWidget {
             onTap: () => onSelect(AppSection.tools),
           ),
           _NavItem(
+            icon: Icons.science_rounded,
+            label: 'الفحص الشامل',
+            shortcut: 'Ctrl+4',
+            selected: section == AppSection.selftest,
+            expanded: expanded,
+            warning: state.testResults.values.any((r) => !r.ok),
+            onTap: () => onSelect(AppSection.selftest),
+          ),
+          _NavItem(
             icon: Icons.tune_rounded,
             label: 'الإعدادات',
-            shortcut: 'Ctrl+4',
+            shortcut: 'Ctrl+5',
             selected: section == AppSection.settings,
             expanded: expanded,
             onTap: () => onSelect(AppSection.settings),
@@ -732,7 +745,11 @@ class _Header extends StatelessWidget {
     final titles = {
       AppSection.workspace: ('مرحبًا بك', 'أضف ملفاتك واختر ما تريد فعله بها — كله على جهازك.'),
       AppSection.queue: ('الطابور', 'متابعة المهام: الحالة، الوقت، ورسائل الخطأ الحقيقية.'),
-      AppSection.tools: ('الأدوات', 'فحص الأدوات المحلية التي يعتمد عليها التطبيق.'),
+      AppSection.tools: ('الأدوات', 'حالة الأدوات المحلية ومسار مجلدها.'),
+      AppSection.selftest: (
+        'الفحص الشامل',
+        'زر واحد يجرّب كل أداة على ملف حقيقي — بلا طرفية ولا أوامر.'
+      ),
       AppSection.settings: ('الإعدادات', 'تخصيص المظهر ومكان النتائج.'),
     };
     final (title, subtitle) = titles[section]!;

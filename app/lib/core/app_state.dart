@@ -8,6 +8,7 @@ import 'command_builder.dart';
 import 'desktop_channel.dart';
 import 'file_entry.dart';
 import 'platform.dart';
+import 'self_test.dart';
 import 'task_queue.dart';
 import 'tool_registry.dart';
 
@@ -33,6 +34,18 @@ class AppState extends ChangeNotifier {
   String? _customOutputFolder;
   bool _scanning = true;
   int _healthCheckTick = 0;
+
+  late final SelfTest selfTest = SelfTest(registry: registry);
+
+  // حالة الفحص الشامل
+  final Map<ToolId, SelfTestResult> _testResults = {};
+  ToolId? _testingTool;
+  bool _testingAll = false;
+
+  Map<ToolId, SelfTestResult> get testResults => Map.unmodifiable(_testResults);
+  ToolId? get testingTool => _testingTool;
+  bool get isTestingAll => _testingAll;
+  int get testsPassed => _testResults.values.where((r) => r.ok).length;
 
   static Future<AppState> bootstrap() async {
     final settings = await AppSettings.load();
@@ -281,6 +294,25 @@ class AppState extends ChangeNotifier {
   }
 
   // ── الأدوات ───────────────────────────────────────────────────
+  /// فحص عملي شامل: كل أداة تُنتج ملفًا حقيقيًا.
+  Future<void> runSelfTest() async {
+    if (_testingAll) return;
+    _testingAll = true;
+    _testResults.clear();
+    notifyListeners();
+    try {
+      await selfTest.runAll(onResult: (result) {
+        _testResults[result.tool] = result;
+        _testingTool = result.tool;
+        notifyListeners();
+      });
+    } finally {
+      _testingAll = false;
+      _testingTool = null;
+      notifyListeners();
+    }
+  }
+
   Future<void> refreshTools() async {
     _scanning = true;
     _healthCheckTick++;

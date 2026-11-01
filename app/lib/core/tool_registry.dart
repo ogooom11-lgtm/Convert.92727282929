@@ -53,18 +53,47 @@ class ToolRegistry {
 
   bool isToolReady(ToolId tool) => statusOf(tool).isReady;
 
-  /// بحث متكرر داخل مجلد الأدوات — بعض البناءات المحمولة تضع الملفات
-  /// داخل مجلدات فرعية (bin مثلًا).
-  String? _locate(String executable, String root) {
-    final direct = File('$root${Platform.pathSeparator}$executable');
+  /// بحث داخل مجلد الأدوات — يتحمّل البناءات المحمولة التي تضع الملفات
+  /// داخل مجلدات فرعية (bin أو gs-bin أو poppler-bin…).
+  ///
+  /// الترتيب: الجذر أولًا، ثم اسم مجلد مرجَّح لكل أداة، ثم بحث عميق.
+  String? _locate(ToolId tool, String root) {
+    final executable = tool.executable;
+    final sep = Platform.pathSeparator;
+    final direct = File('$root$sep$executable');
     if (direct.existsSync()) return direct.path;
+
     final dir = Directory(root);
     if (!dir.existsSync()) return null;
+
+    // مجلدات تُفضَّل عند التكرار (Ghostscript وPoppler يأتيان داخل مجلدات).
+    final preferred = _preferredHint(tool);
+    if (preferred != null) {
+      final hinted = Directory('$root$sep$preferred');
+      if (hinted.existsSync()) {
+        final found = _search(hinted, executable);
+        if (found != null) return found;
+      }
+    }
+
+    return _search(dir, executable);
+  }
+
+  String? _preferredHint(ToolId tool) => switch (tool) {
+        ToolId.ghostscript => 'gs-bin',
+        ToolId.poppler => 'poppler-bin',
+        _ => null,
+      };
+
+  String? _search(Directory dir, String executable) {
     try {
-      for (final entity in dir.listSync(recursive: true, followLinks: false)) {
+      final entities = dir.listSync(recursive: true, followLinks: false)
+        ..sort((a, b) => a.path.length.compareTo(b.path.length));
+      for (final entity in entities) {
         if (entity is File &&
             entity.uri.pathSegments.isNotEmpty &&
-            entity.uri.pathSegments.last.toLowerCase() == executable.toLowerCase()) {
+            entity.uri.pathSegments.last.toLowerCase() ==
+                executable.toLowerCase()) {
           return entity.path;
         }
       }
@@ -78,7 +107,7 @@ class ToolRegistry {
     toolsDir = PlatformInfo.resolveToolsDir();
 
     await Future.wait(ToolId.values.map((tool) async {
-      final path = _locate(tool.executable, toolsDir);
+      final path = _locate(tool, toolsDir);
       if (path == null) {
         _statuses[tool] = ToolStatus(id: tool, state: ToolState.missing);
         onUpdate?.call(tool, _statuses[tool]!);
