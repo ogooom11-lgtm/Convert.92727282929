@@ -144,22 +144,44 @@ jobs:
       # ── Ghostscript ───────────────────────────────────────────────
       - name: تنزيل Ghostscript
         shell: pwsh
+        timeout-minutes: 12
         run: |
-          $ErrorActionPreference = "Stop"
+          $ErrorActionPreference = "Continue"
           $rel = Invoke-RestMethod "https://api.github.com/repos/ArtifexSoftware/ghostpdl-downloads/releases/latest"
           $asset = $rel.assets | Where-Object { $_.name -like "gs*w64.exe" } | Select-Object -First 1
-          if (-not $asset) { throw "لم يُعثر على مثبّت Ghostscript 64-bit" }
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "$env:RUNNER_TEMP\gs.exe"
+          if (-not $asset) { throw "لم يُعثر على حزمة Ghostscript 64-bit" }
+          $installer = "$env:RUNNER_TEMP\gs.exe"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installer
+          Write-Output "gs asset: $($asset.name) $([math]::Round($asset.size/1MB,1)) MB"
           $target = "$env:TOOLS_DIR\gs-bin"
-          Start-Process -FilePath "$env:RUNNER_TEMP\gs.exe" -ArgumentList "/S","/D=$target" -Wait
-          $exe = Get-ChildItem $target -Recurse -Filter gswin64c.exe | Select-Object -First 1
-          if (-not $exe) { throw "gswin64c.exe غير موجود بعد التثبيت" }
+          $sevenZip = if ($env:SEVEN_ZIP) { $env:SEVEN_ZIP } else { Get-Content "$env:RUNNER_TEMP\sevenzip.txt" }
+
+          # المحاولة ١: فكّ محتوى المثبّت مباشرة (بلا تشغيله) — أسرع وأأمن.
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          & $sevenZip x $installer "-o$target" -y | Out-Null
+          $exe = Get-ChildItem $target -Recurse -Filter gswin64c.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+
+          # المحاولة ٢: تشغيل المثبّت في الوضع الصامت مع مهلة قصوى.
+          if (-not $exe) {
+            Write-Output "فكّ المحتوى لم يُنتج gswin64c.exe — نجرّب المثبّت الصامت"
+            Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
+            $proc = Start-Process -FilePath $installer -ArgumentList "/S","/D=$target" -PassThru
+            if (-not $proc.WaitForExit(300000)) {
+              Write-Output "::warning::انتهت مهلة مثبّت Ghostscript — نُوقفه"
+              Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+              Get-Process -Name "gswin*","gsdw*","unins*" -ErrorAction SilentlyContinue | Stop-Process -Force
+            }
+            $exe = Get-ChildItem $target -Recurse -Filter gswin64c.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+
+          if (-not $exe) { throw "gswin64c.exe غير موجود بعد كل المحاولات" }
           Write-Output "gs: $($exe.FullName)"
           & $exe.FullName --version
 
       # ── Poppler ───────────────────────────────────────────────────
       - name: تنزيل Poppler
         shell: pwsh
+        timeout-minutes: 10
         run: |
           $ErrorActionPreference = "Stop"
           $rel = Invoke-RestMethod "https://api.github.com/repos/oschwartz10612/poppler-windows/releases/latest"
@@ -175,6 +197,7 @@ jobs:
       # ── LibreOffice ───────────────────────────────────────────────
       - name: تنزيل LibreOffice
         shell: pwsh
+        timeout-minutes: 25
         run: |
           $ErrorActionPreference = "Stop"
           $listing = Invoke-WebRequest "https://download.documentfoundation.org/libreoffice/stable/" -UseBasicParsing
@@ -187,7 +210,11 @@ jobs:
           Write-Output "msi size: $([math]::Round((Get-Item "$env:RUNNER_TEMP\lo.msi").Length / 1MB, 1)) MB"
           $target = "$env:TOOLS_DIR\libreoffice"
           # استخراج إداري (بلا تثبيت داخل النظام)
-          Start-Process msiexec.exe -ArgumentList "/a","$env:RUNNER_TEMP\lo.msi","/qn","TARGETDIR=$target" -Wait
+          $msi = Start-Process msiexec.exe -ArgumentList "/a","$env:RUNNER_TEMP\lo.msi","/qn","TARGETDIR=$target" -PassThru
+          if (-not $msi.WaitForExit(900000)) {
+            Write-Output "::warning::انتهت مهلة استخراج LibreOffice"
+            Stop-Process -Id $msi.Id -Force -ErrorAction SilentlyContinue
+          }
           $exe = Get-ChildItem $target -Recurse -Filter soffice.exe -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $exe) {
             Write-Output "الاستخراج الإداري لم ينتج soffice.exe — نجرّب فكّ محتوى MSI"
