@@ -85,13 +85,9 @@ jobs:
           $fence = [char]0x0060 + [char]0x0060 + [char]0x0060
           $lines = @("### فشل بناء ويندوز", "", $fence)
           if (Test-Path analyze.log) {
-            $diags = Get-Content analyze.log | Select-String -Pattern "error •|warning •" |
-              Select-Object -First 25
-            if ($diags) {
-              $lines += "**أخطاء التحليل:**"
-              foreach ($d in $diags) { $lines += $d.Line }
-              $lines += ""
-            }
+            $lines += "**نتيجة التحليل (آخر ٢٥ سطرًا):**"
+            $lines += (Get-Content analyze.log -Tail 25)
+            $lines += ""
           }
           if (Test-Path build-tail.txt) {
             $lines += (Get-Content build-tail.txt -Tail 60)
