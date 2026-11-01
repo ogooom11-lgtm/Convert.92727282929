@@ -27,29 +27,9 @@ class SelfTestPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Text('حالة الأدوات', style: context.theme.textTheme.titleLarge),
-              const SizedBox(width: 10),
-              if (results.isNotEmpty)
-                Pill(
-                  '$passed / $total',
-                  color: passed == total ? AppColors.success : AppColors.warning,
-                  dense: true,
-                ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'كل أداة تُنتج ملفًا حقيقيًا هنا: صورة، PS، PDF، فيديو، أرشيف، '
-            'ومستند عربي. النجاح يعني أن العمليات ستعمل.',
-            style: context.theme.textTheme.bodySmall,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
           GlassCard(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(16),
             child: Row(
               children: [
                 Expanded(
@@ -101,7 +81,7 @@ class SelfTestPage extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
           LayoutBuilder(
             builder: (context, constraints) {
               final columns = constraints.maxWidth >= 620 ? 2 : 1;
@@ -176,14 +156,14 @@ class _ScoreRing extends StatelessWidget {
     final ratio = total == 0 ? 0.0 : passed / total;
     final palette = context.palette;
     return SizedBox(
-      width: 92,
-      height: 92,
+      width: 78,
+      height: 78,
       child: Stack(
         alignment: Alignment.center,
         children: [
           SizedBox(
-            width: 92,
-            height: 92,
+            width: 78,
+            height: 78,
             child: TweenAnimationBuilder<double>(
               tween: Tween(begin: 0, end: ratio),
               duration: const Duration(milliseconds: 600),
