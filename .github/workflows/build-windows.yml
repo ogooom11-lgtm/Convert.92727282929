@@ -84,10 +84,18 @@ jobs:
         run: |
           $fence = [char]0x0060 + [char]0x0060 + [char]0x0060
           $lines = @("### فشل بناء ويندوز", "", $fence)
+          if (Test-Path analyze.log) {
+            $diags = Get-Content analyze.log | Select-String -Pattern "error •|warning •" |
+              Select-Object -First 25
+            if ($diags) {
+              $lines += "**أخطاء التحليل:**"
+              foreach ($d in $diags) { $lines += $d.Line }
+              $lines += ""
+            }
+          }
           if (Test-Path build-tail.txt) {
-            $tail = Get-Content build-tail.txt -Tail 120
-            $lines += $tail
-          } else {
+            $lines += (Get-Content build-tail.txt -Tail 60)
+          } elseif (-not (Test-Path analyze.log)) {
             $lines += "لا يوجد سجل محفوظ."
           }
           $lines += $fence
