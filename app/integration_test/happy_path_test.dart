@@ -23,16 +23,28 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('التطبيق يفتح ويستجيب للتفاعل الأساسي', (tester) async {
+    // نضبط حجمًا منطقيًا ثابتًا كي لا تعتمد النتيجة على دقة شاشة runner.
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
     final state = await AppState.bootstrap();
     await tester.pumpWidget(ConvertApp(state: state));
     await tester.pump(const Duration(milliseconds: 900));
 
-    expect(find.text('تحويل'), findsWidgets);
+    // الشاشة الأولى: منطقة الإفلات + بطاقات العمليات.
     expect(find.text('اسحب ملفاتك هنا'), findsOneWidget);
     expect(find.text('العمليات تظهر هنا'), findsOneWidget);
+    // التنقل بين الأقسام يعمل.
+    expect(find.text('الطابور'), findsWidgets);
+    expect(find.text('الإعدادات'), findsWidgets);
   });
 
   testWidgets('إضافة ملف يعرض العمليات المتاحة له فقط', (tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
     final state = await AppState.bootstrap();
     final file = File('${Directory.current.path}/test/fixtures/صورة.png');
     if (!file.existsSync()) {

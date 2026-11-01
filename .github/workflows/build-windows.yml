@@ -34,7 +34,11 @@ jobs:
         run: flutter test
 
       - name: اختبار التكامل على ويندوز (نافذة حقيقية)
-        run: flutter test integration_test -d windows
+        shell: pwsh
+        run: |
+          flutter test integration_test -d windows --reporter expanded 2>&1 |
+            Tee-Object -FilePath integration-test.log
+          exit $LASTEXITCODE
 
       - name: بناء الإصدار
         if: always()
@@ -46,6 +50,10 @@ jobs:
           New-Item -ItemType File -Path build-tail.txt -Force | Out-Null
           "=== exit: $code ===" | Out-File -FilePath build-tail.txt -Encoding utf8
           Get-Content build-verbose.log -Tail 150 | Out-File -FilePath build-tail.txt -Append -Encoding utf8
+          if (Test-Path integration-test.log) {
+            "=== سجل اختبار التكامل ===" | Out-File -FilePath build-tail.txt -Append -Encoding utf8
+            Get-Content integration-test.log -Tail 80 | Out-File -FilePath build-tail.txt -Append -Encoding utf8
+          }
           Get-Content build-tail.txt
           # ملخص الخطأ يظهر في صفحة التشغيل مباشرة (يُقرأ حتى لو كانت
           # السجلات التفصيلية محجوبة).
