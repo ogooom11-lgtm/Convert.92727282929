@@ -544,12 +544,7 @@ class _NavItemState extends State<_NavItem> {
                   ]
                 : null,
           ),
-          child: _CollapsedTooltip(
-            enabled: !widget.expanded,
-            label: widget.shortcut == null
-                ? widget.label
-                : '${widget.label}  ·  ${widget.shortcut}',
-            child: Row(
+          child: Row(
             mainAxisAlignment: widget.expanded
                 ? MainAxisAlignment.start
                 : MainAxisAlignment.center,
@@ -639,9 +634,11 @@ class _NavItemState extends State<_NavItem> {
       ),
     );
 
-    if (!widget.expanded && widget.shortcut != null) {
-      return Tooltip(
-        message: '${widget.label} · ${widget.shortcut}',
+    if (!widget.expanded) {
+      return _CollapsedTooltip(
+        label: widget.shortcut == null
+            ? widget.label
+            : '${widget.label}  ·  ${widget.shortcut}',
         child: content,
       );
     }
@@ -888,19 +885,13 @@ class _QueueChipState extends State<_QueueChip> {
 
 /// تلميح عربي عند تصغير الشريط الجانبي — أيقونات وحدها بلا أسماء تُربك.
 class _CollapsedTooltip extends StatelessWidget {
-  const _CollapsedTooltip({
-    required this.enabled,
-    required this.label,
-    required this.child,
-  });
+  const _CollapsedTooltip({required this.label, required this.child});
 
-  final bool enabled;
   final String label;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    if (!enabled) return child;
     return Tooltip(
       message: label,
       waitDuration: const Duration(milliseconds: 320),

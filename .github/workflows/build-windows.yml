@@ -28,7 +28,17 @@ jobs:
         run: flutter pub get
 
       - name: تحليل الكود
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+        shell: pwsh
+        run: |
+          flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 |
+            Tee-Object -FilePath analyze.log | Write-Output
+          if ($LASTEXITCODE -ne 0) {
+            $errors = Get-Content analyze.log | Select-String -Pattern "error •" | Select-Object -First 20
+            "### أخطاء التحليل`n\`\`\`" | Add-Content $env:GITHUB_STEP_SUMMARY
+            $errors | ForEach-Object { $_.Line } | Add-Content $env:GITHUB_STEP_SUMMARY
+            "```" | Add-Content $env:GITHUB_STEP_SUMMARY
+            throw "فشل التحليل"
+          }
 
       - name: الاختبارات
         run: flutter test
