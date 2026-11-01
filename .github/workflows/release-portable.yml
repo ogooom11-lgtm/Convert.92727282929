@@ -272,15 +272,21 @@ jobs:
       # ── ضبط صلاحيات ImageMagick (PDF/PS) ──────────────────────────
       - name: السماح بصيغ PDF في ImageMagick
         shell: pwsh
+        continue-on-error: true
         run: |
+          $ErrorActionPreference = "Continue"
           $policy = Get-ChildItem "$env:TOOLS_DIR" -Recurse -Filter policy.xml -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $policy) { Write-Output "::warning::لا يوجد policy.xml"; exit 0 }
-          Copy-Item $policy.FullName "$env:TOOLS_DIR\policy.xml" -Force
-          $text = Get-Content "$env:TOOLS_DIR\policy.xml" -Raw
-          $text = $text -replace '(?s)<policy domain="coder"[^>]*rights="none"[^>]*pattern="\{[^}]*\b(PDF|PS|EPS|XPS)\b[^}]*\}"[^>]*/>', ''
-          $text = $text -replace '(?s)<policy domain="delegate"[^>]*rights="none"[^>]*pattern="\b(ps|pdf)\b"[^>]*/>', ''
-          Set-Content -Path "$env:TOOLS_DIR\policy.xml" -Value $text -Encoding utf8
-          Write-Output "policy.xml محدّث: $($policy.FullName)"
+          if (-not $policy) {
+            Write-Output "::warning::لا يوجد policy.xml — التطبيق يضبطه تلقائيًا عند أول تشغيل"
+            exit 0
+          }
+          Write-Output "policy: $($policy.FullName)"
+          $text = Get-Content $policy.FullName -Raw
+          $before = $text.Length
+          $text = $text -replace '<policy[^>]*domain="coder"[^>]*rights="none"[^>]*pattern="[^"]*(PDF|PS|EPS|XPS)[^"]*"[^>]*/>', '<!-- edited by Convert: PDF/PS allowed -->'
+          $text = $text -replace '<policy[^>]*domain="delegate"[^>]*rights="none"[^>]*pattern="(ps|pdf)"[^>]*/>', '<!-- edited by Convert: ps/pdf delegate allowed -->'
+          Set-Content -Path $policy.FullName -Value $text -Encoding utf8
+          Write-Output "policy.xml محدّث ($before -> $($text.Length) بايت)"
 
       # ── ملخص نهائي يُقرأ من صفحة التشغيل ──────────────────────────
       - name: التحقق النهائي من الحزمة
