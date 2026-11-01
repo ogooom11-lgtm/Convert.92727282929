@@ -544,7 +544,12 @@ class _NavItemState extends State<_NavItem> {
                   ]
                 : null,
           ),
-          child: Row(
+          child: _CollapsedTooltip(
+            enabled: !widget.expanded,
+            label: widget.shortcut == null
+                ? widget.label
+                : '${widget.label}  ·  ${widget.shortcut}',
+            child: Row(
             mainAxisAlignment: widget.expanded
                 ? MainAxisAlignment.start
                 : MainAxisAlignment.center,
@@ -877,6 +882,42 @@ class _QueueChipState extends State<_QueueChip> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// تلميح عربي عند تصغير الشريط الجانبي — أيقونات وحدها بلا أسماء تُربك.
+class _CollapsedTooltip extends StatelessWidget {
+  const _CollapsedTooltip({
+    required this.enabled,
+    required this.label,
+    required this.child,
+  });
+
+  final bool enabled;
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!enabled) return child;
+    return Tooltip(
+      message: label,
+      waitDuration: const Duration(milliseconds: 320),
+      preferBelow: false,
+      textStyle: TextStyle(
+        fontFamily: 'Cairo',
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        color: context.isDark ? Colors.white : const Color(0xFF1B2240),
+      ),
+      decoration: BoxDecoration(
+        color: context.isDark
+            ? const Color(0xFF232A42)
+            : const Color(0xFF1B2240),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: child,
     );
   }
 }

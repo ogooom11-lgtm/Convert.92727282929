@@ -29,7 +29,7 @@ class SelfTestPage extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text('الفحص الشامل', style: context.theme.textTheme.headlineSmall),
+              Text('حالة الأدوات', style: context.theme.textTheme.titleLarge),
               const SizedBox(width: 10),
               if (results.isNotEmpty)
                 Pill(
