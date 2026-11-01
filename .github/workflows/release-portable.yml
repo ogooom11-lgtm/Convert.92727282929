@@ -11,11 +11,13 @@ on:
       - .github/workflows/release-portable.yml
 
 permissions:
-  contents: write
+  contents: read
+  pull-requests: write
 
 jobs:
   package:
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -34,183 +36,213 @@ jobs:
         shell: pwsh
         run: |
           $root = "$env:GITHUB_WORKSPACE\Convert-portable"
-          $release = "$env:GITHUB_WORKSPACE\app\build\windows\x64\runner\Release"
           $tools = "$root\tools"
           New-Item -ItemType Directory -Force -Path $tools | Out-Null
-          Copy-Item "$release\*" $root -Recurse -Force
-          $env:TOOLS_DIR = $tools
-          "TOOLS_DIR=$tools" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Copy-Item "$env:GITHUB_WORKSPACE\app\build\windows\x64\runner\Release\*" $root -Recurse -Force
           "ROOT_DIR=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TOOLS_DIR=$tools" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # أداة فك الضغط: 7z الموجود على الـ runner، وإلا 7zr المحمول.
+          $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+          if (-not (Test-Path $sevenZip)) {
+            Invoke-WebRequest "https://www.7-zip.org/a/7zr.exe" -OutFile "$env:RUNNER_TEMP\7zr.exe"
+            $sevenZip = "$env:RUNNER_TEMP\7zr.exe"
+          }
+          "SEVEN_ZIP=$sevenZip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Output "7z: $sevenZip"
 
       # ── FFmpeg + FFprobe ──────────────────────────────────────────
       - name: تنزيل FFmpeg
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           $u = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
-          Invoke-WebRequest -Uri $u -OutFile ffmpeg.zip
-          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg -Force
-          $bin = Get-ChildItem ffmpeg -Recurse -Filter ffmpeg.exe | Select-Object -First 1
-          $probe = Get-ChildItem ffmpeg -Recurse -Filter ffprobe.exe | Select-Object -First 1
-          Copy-Item $bin.FullName "$env:TOOLS_DIR\ffmpeg.exe"
-          Copy-Item $probe.FullName "$env:TOOLS_DIR\ffprobe.exe"
-          Write-Output "ffmpeg: $($bin.FullName)"
+          Invoke-WebRequest -Uri $u -OutFile "$env:RUNNER_TEMP\ffmpeg.zip"
+          Expand-Archive "$env:RUNNER_TEMP\ffmpeg.zip" -DestinationPath "$env:RUNNER_TEMP\ffmpeg" -Force
+          $bin = Get-ChildItem "$env:RUNNER_TEMP\ffmpeg" -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          $probe = Get-ChildItem "$env:RUNNER_TEMP\ffmpeg" -Recurse -Filter ffprobe.exe | Select-Object -First 1
+          Copy-Item $bin.FullName "$env:TOOLS_DIR\ffmpeg.exe" -Force
+          Copy-Item $probe.FullName "$env:TOOLS_DIR\ffprobe.exe" -Force
+          & "$env:TOOLS_DIR\ffmpeg.exe" -hide_banner -version | Select-Object -First 1
 
       # ── ImageMagick ───────────────────────────────────────────────
       - name: تنزيل ImageMagick
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           $rel = Invoke-RestMethod "https://api.github.com/repos/ImageMagick/ImageMagick/releases/latest"
           $asset = $rel.assets | Where-Object { $_.name -like "*-portable-Q16-x64.7z" } | Select-Object -First 1
           if (-not $asset) { throw "لم يُعثر على حزمة ImageMagick المحمولة" }
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile magick.7z
-          & "C:\Program Files\7-Zip\7z.exe" x magick.7z -o"$env:TOOLS_DIR\imagemagick" -y | Out-Null
-          $exe = Get-ChildItem "$env:TOOLS_DIR\imagemagick" -Recurse -Filter magick.exe | Select-Object -First 1
-          if (-not $exe) { throw "magick.exe غير موجود في الحزمة" }
-          # نضع ملفات ImageMagick في مجلد واحد مسطّح داخل tools
-          Move-Item $exe.FullName "$env:TOOLS_DIR\magick.exe"
-          Get-ChildItem "$env:TOOLS_DIR\imagemagick" -Recurse | Where-Object { -not $_.PSIsContainer -and $_.FullName -notlike "*magick.exe" } |
-            ForEach-Object { Copy-Item $_.FullName "$env:TOOLS_DIR\" -Force -ErrorAction SilentlyContinue }
-          Remove-Item "$env:TOOLS_DIR\imagemagick" -Recurse -Force
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "$env:RUNNER_TEMP\magick.7z"
+          $tmp = "$env:RUNNER_TEMP\imagemagick"
+          & $env:SEVEN_ZIP x "$env:RUNNER_TEMP\magick.7z" "-o$tmp" -y | Out-Null
+          $exe = Get-ChildItem $tmp -Recurse -Filter magick.exe | Select-Object -First 1
+          if (-not $exe) { throw "magick.exe غير موجود داخل الحزمة" }
+          # ImageMagick محمول: نحتاج كل ما بجانبه (DLLs + configure + modules)
+          Copy-Item "$($exe.DirectoryName)\*" "$env:TOOLS_DIR\" -Recurse -Force
+          & "$env:TOOLS_DIR\magick.exe" -version | Select-Object -First 1
 
       # ── 7-Zip ─────────────────────────────────────────────────────
       - name: تنزيل 7-Zip
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           $rel = Invoke-RestMethod "https://api.github.com/repos/ip7z/7zip/releases/latest"
           $extra = $rel.assets | Where-Object { $_.name -like "*-extra.7z" } | Select-Object -First 1
-          $setup = $rel.assets | Where-Object { $_.name -like "*-x64.exe" } | Select-Object -First 1
-          if ($extra) {
-            Invoke-WebRequest -Uri $extra.browser_download_url -OutFile 7z-extra.7z
-            & "C:\Program Files\7-Zip\7z.exe" x 7z-extra.7z -o"$env:TOOLS_DIR\7z-extra" -y | Out-Null
-            $exe = Get-ChildItem "$env:TOOLS_DIR\7z-extra" -Recurse -Filter 7z.exe | Select-Object -First 1
-            $dll = Get-ChildItem "$env:TOOLS_DIR\7z-extra" -Recurse -Filter 7z.dll | Select-Object -First 1
-            Copy-Item $exe.FullName "$env:TOOLS_DIR\7z.exe"
-            if ($dll) { Copy-Item $dll.FullName "$env:TOOLS_DIR\7z.dll" }
-            Remove-Item "$env:TOOLS_DIR\7z-extra" -Recurse -Force
-          } else {
-            Invoke-WebRequest -Uri $setup.browser_download_url -OutFile 7z-setup.exe
-            Start-Process -FilePath .\7z-setup.exe -ArgumentList "/S","/D=$env:TOOLS_DIR" -Wait
-          }
+          if (-not $extra) { throw "لم يُعثر على حزمة 7-Zip Extra" }
+          Invoke-WebRequest -Uri $extra.browser_download_url -OutFile "$env:RUNNER_TEMP\7z-extra.7z"
+          $tmp = "$env:RUNNER_TEMP\7z-extra"
+          & $env:SEVEN_ZIP x "$env:RUNNER_TEMP\7z-extra.7z" "-o$tmp" -y | Out-Null
+          $exe = Get-ChildItem $tmp -Recurse -Filter 7z.exe | Select-Object -First 1
+          if (-not $exe) { throw "7z.exe غير موجود في حزمة Extra" }
+          Copy-Item $exe.FullName "$env:TOOLS_DIR\7z.exe" -Force
+          $dll = Get-ChildItem $exe.DirectoryName -Filter 7z.dll | Select-Object -First 1
+          if ($dll) { Copy-Item $dll.FullName "$env:TOOLS_DIR\7z.dll" -Force }
+          & "$env:TOOLS_DIR\7z.exe" i | Select-Object -First 3
 
       # ── qpdf ──────────────────────────────────────────────────────
       - name: تنزيل qpdf
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           $rel = Invoke-RestMethod "https://api.github.com/repos/qpdf/qpdf/releases/latest"
           $asset = $rel.assets | Where-Object { $_.name -like "*-msvc64.zip" } | Select-Object -First 1
-          if (-not $asset) { throw "لم يُعثر على حزمة qpdf لـ msvc64" }
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile qpdf.zip
-          Expand-Archive qpdf.zip -DestinationPath qpdf -Force
-          $exe = Get-ChildItem qpdf -Recurse -Filter qpdf.exe | Select-Object -First 1
-          $dlls = Get-ChildItem qpdf -Recurse -Filter *.dll
-          Copy-Item $exe.FullName "$env:TOOLS_DIR\qpdf.exe"
-          foreach ($dll in $dlls) { Copy-Item $dll.FullName "$env:TOOLS_DIR\" -Force }
+          if (-not $asset) { throw "لم يُعثر على حزمة qpdf msvc64" }
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "$env:RUNNER_TEMP\qpdf.zip"
+          Expand-Archive "$env:RUNNER_TEMP\qpdf.zip" -DestinationPath "$env:RUNNER_TEMP\qpdf" -Force
+          $exe = Get-ChildItem "$env:RUNNER_TEMP\qpdf" -Recurse -Filter qpdf.exe | Select-Object -First 1
+          if (-not $exe) { throw "qpdf.exe غير موجود" }
+          Copy-Item $exe.FullName "$env:TOOLS_DIR\qpdf.exe" -Force
+          Get-ChildItem $exe.DirectoryName -Filter *.dll | ForEach-Object {
+            Copy-Item $_.FullName "$env:TOOLS_DIR\" -Force
+          }
+          & "$env:TOOLS_DIR\qpdf.exe" --version
 
       # ── Ghostscript ───────────────────────────────────────────────
       - name: تنزيل Ghostscript
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           $rel = Invoke-RestMethod "https://api.github.com/repos/ArtifexSoftware/ghostpdl-downloads/releases/latest"
           $asset = $rel.assets | Where-Object { $_.name -like "gs*w64.exe" } | Select-Object -First 1
-          if (-not $asset) { throw "لم يُعثر على مثبّت Ghostscript لـ 64-bit" }
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile gs.exe
-          $gs = "$env:TOOLS_DIR\gs"
-          New-Item -ItemType Directory -Force -Path $gs | Out-Null
-          Start-Process -FilePath .\gs.exe -ArgumentList "/S","/D=$gs" -Wait
-          $exe = Get-ChildItem $gs -Recurse -Filter gswin64c.exe | Select-Object -First 1
-          if (-not $exe) { throw "gswin64c.exe غير موجود" }
-          # ننقل تثبيت Ghostscript كاملًا لأن ملفاته تحتاج مجلدها
-          Copy-Item $exe.DirectoryName -Destination "$env:TOOLS_DIR\gs-bin" -Recurse -Force
-          Remove-Item $gs -Recurse -Force
-          Get-ChildItem "$env:TOOLS_DIR\gs-bin" | Select-Object -First 5 Name
+          if (-not $asset) { throw "لم يُعثر على مثبّت Ghostscript 64-bit" }
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "$env:RUNNER_TEMP\gs.exe"
+          $target = "$env:TOOLS_DIR\gs-bin"
+          Start-Process -FilePath "$env:RUNNER_TEMP\gs.exe" -ArgumentList "/S","/D=$target" -Wait
+          $exe = Get-ChildItem $target -Recurse -Filter gswin64c.exe | Select-Object -First 1
+          if (-not $exe) { throw "gswin64c.exe غير موجود بعد التثبيت" }
+          Write-Output "gs: $($exe.FullName)"
+          & $exe.FullName --version
 
       # ── Poppler ───────────────────────────────────────────────────
       - name: تنزيل Poppler
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           $rel = Invoke-RestMethod "https://api.github.com/repos/oschwartz10612/poppler-windows/releases/latest"
           $asset = $rel.assets | Where-Object { $_.name -like "*.zip" } | Select-Object -First 1
           if (-not $asset) { throw "لم يُعثر على حزمة Poppler" }
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile poppler.zip
-          Expand-Archive poppler.zip -DestinationPath poppler -Force
-          $bin = Get-ChildItem poppler -Recurse -Filter pdftotext.exe | Select-Object -First 1
-          if (-not $bin) { throw "pdftotext.exe غير موجود" }
-          Copy-Item $bin.DirectoryName -Destination "$env:TOOLS_DIR\poppler-bin" -Recurse -Force
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "$env:RUNNER_TEMP\poppler.zip"
+          Expand-Archive "$env:RUNNER_TEMP\poppler.zip" -DestinationPath "$env:RUNNER_TEMP\poppler" -Force
+          $exe = Get-ChildItem "$env:RUNNER_TEMP\poppler" -Recurse -Filter pdftotext.exe | Select-Object -First 1
+          if (-not $exe) { throw "pdftotext.exe غير موجود" }
+          Copy-Item $exe.DirectoryName "$env:TOOLS_DIR\poppler-bin" -Recurse -Force
+          Write-Output "poppler: $($exe.DirectoryName)"
 
       # ── LibreOffice ───────────────────────────────────────────────
       - name: تنزيل LibreOffice
         shell: pwsh
         run: |
-          $url = "https://download.documentfoundation.org/libreoffice/stable/25.8.2/win/x86_64/LibreOffice_25.8.2_Win_x86-64.msi"
-          $ok = $false
-          try {
-            Invoke-WebRequest -Uri $url -OutFile lo.msi -MaximumRedirection 5
-            $ok = (Get-Item lo.msi).Length -gt 100MB
-          } catch { Write-Output "fallback to mirror" }
-          if (-not $ok) {
-            $listing = Invoke-WebRequest "https://download.documentfoundation.org/libreoffice/stable/" -UseBasicParsing
-            $ver = ([regex]::Matches($listing.Content, '(\d+\.\d+\.\d+)/') | ForEach-Object { $_.Groups[1].Value } |
-              Sort-Object -Descending -Unique | Select-Object -First 1)
-            $url = "https://download.documentfoundation.org/libreoffice/stable/$ver/win/x86_64/LibreOffice_${ver}_Win_x86-64.msi"
-            Write-Output "using $url"
-            Invoke-WebRequest -Uri $url -OutFile lo.msi
+          $ErrorActionPreference = "Stop"
+          $listing = Invoke-WebRequest "https://download.documentfoundation.org/libreoffice/stable/" -UseBasicParsing
+          $ver = ([regex]::Matches($listing.Content, '(\d+\.\d+\.\d+)/') |
+            ForEach-Object { $_.Groups[1].Value } | Sort-Object -Descending -Unique | Select-Object -First 1)
+          if (-not $ver) { throw "تعذّر تحديد إصدار LibreOffice الحالي" }
+          $url = "https://download.documentfoundation.org/libreoffice/stable/$ver/win/x86_64/LibreOffice_${ver}_Win_x86-64.msi"
+          Write-Output "using $url"
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\lo.msi"
+          Write-Output "msi size: $([math]::Round((Get-Item "$env:RUNNER_TEMP\lo.msi").Length / 1MB, 1)) MB"
+          $target = "$env:TOOLS_DIR\libreoffice"
+          # استخراج إداري (بلا تثبيت داخل النظام)
+          Start-Process msiexec.exe -ArgumentList "/a","$env:RUNNER_TEMP\lo.msi","/qn","TARGETDIR=$target" -Wait
+          $exe = Get-ChildItem $target -Recurse -Filter soffice.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) {
+            Write-Output "الاستخراج الإداري لم ينتج soffice.exe — نجرّب فكّ محتوى MSI"
+            Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
+            & $env:SEVEN_ZIP x "$env:RUNNER_TEMP\lo.msi" "-o$target" -y | Out-Null
+            $exe = Get-ChildItem $target -Recurse -Filter soffice.exe -ErrorAction SilentlyContinue | Select-Object -First 1
           }
-          $lo = "$env:TOOLS_DIR\libreoffice"
-          Start-Process msiexec.exe -ArgumentList "/a","$PWD\lo.msi","/qn","TARGETDIR=$lo" -Wait
-          $soffice = Get-ChildItem $lo -Recurse -Filter soffice.exe | Select-Object -First 1
-          if (-not $soffice) { throw "soffice.exe غير موجود بعد الاستخراج" }
-          Write-Output "soffice: $($soffice.FullName)"
+          if (-not $exe) { throw "soffice.exe غير موجود بعد كل المحاولات" }
+          Write-Output "soffice: $($exe.FullName)"
+          & $exe.FullName --version | Select-Object -First 2
 
-      # ── إعداد policy.xml وفحص الموارد البشرية ────────────────────
+      # ── ضبط صلاحيات ImageMagick (PDF/PS) ──────────────────────────
       - name: السماح بصيغ PDF في ImageMagick
         shell: pwsh
         run: |
-          $policy = Get-ChildItem "$env:TOOLS_DIR" -Filter policy.xml -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($policy) {
-            $text = Get-Content $policy.FullName -Raw
-            $text = $text -replace '<policy domain="coder" rights="none" pattern="\{PS,PS2,PS3,EPS,PDF,XPS\}" />', ''
-            Set-Content -Path $policy.FullName -Value $text -Encoding utf8
-            Write-Output "policy.xml عُدّل: $($policy.FullName)"
-          } else {
-            Write-Output "::warning::لم يُعثر على policy.xml — عمليات PDF قد تفشل في ImageMagick"
-          }
+          $policy = Get-ChildItem "$env:TOOLS_DIR" -Recurse -Filter policy.xml -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $policy) { Write-Output "::warning::لا يوجد policy.xml"; exit 0 }
+          Copy-Item $policy.FullName "$env:TOOLS_DIR\policy.xml" -Force
+          $text = Get-Content "$env:TOOLS_DIR\policy.xml" -Raw
+          $text = $text -replace '(?s)<policy domain="coder"[^>]*rights="none"[^>]*pattern="\{[^}]*\b(PDF|PS|EPS|XPS)\b[^}]*\}"[^>]*/>', ''
+          $text = $text -replace '(?s)<policy domain="delegate"[^>]*rights="none"[^>]*pattern="\b(ps|pdf)\b"[^>]*/>', ''
+          Set-Content -Path "$env:TOOLS_DIR\policy.xml" -Value $text -Encoding utf8
+          Write-Output "policy.xml محدّث: $($policy.FullName)"
 
-      - name: التحقق من الأدوات في الحزمة
+      # ── ملخص نهائي يُقرأ من صفحة التشغيل ──────────────────────────
+      - name: التحقق النهائي من الحزمة
         shell: pwsh
         run: |
-          $checks = @(
-            @{ name = "ffmpeg";     cmd = "$env:TOOLS_DIR\ffmpeg.exe -version" },
-            @{ name = "ffprobe";    cmd = "$env:TOOLS_DIR\ffprobe.exe -version" },
-            @{ name = "magick";     cmd = "$env:TOOLS_DIR\magick.exe -version" },
-            @{ name = "7z";         cmd = "$env:TOOLS_DIR\7z.exe i" },
-            @{ name = "qpdf";       cmd = "$env:TOOLS_DIR\qpdf.exe --version" },
-            @{ name = "pdftotext";  cmd = "$env:TOOLS_DIR\poppler-bin\Library\bin\pdftotext.exe -v" },
-            @{ name = "gswin64c";   cmd = (Get-ChildItem "$env:TOOLS_DIR\gs-bin" -Recurse -Filter gswin64c.exe | Select-Object -First 1).FullName + " --version" }
-          )
-          foreach ($c in $checks) {
+          $tools = $env:TOOLS_DIR
+          $rows = @()
+          function Probe($name, $path, $args) {
+            if (-not (Test-Path $path)) {
+              Write-Output "::error::$name مفقود ($path)"
+              return "$name | مفقود"
+            }
             try {
-              $out = Invoke-Expression $c.cmd 2>&1 | Select-Object -First 1
-              "$($c.name): $out" | Write-Output
-            } catch { "$($c.name): FAILED $_" | Write-Output }
+              $out = & $path $args 2>&1 | Select-Object -First 1
+              Write-Output "$name : $out"
+              return "$name | يعمل"
+            } catch {
+              Write-Output "::error::$name لا يعمل: $_"
+              return "$name | لا يعمل"
+            }
           }
+          $gs = Get-ChildItem "$tools\gs-bin" -Recurse -Filter gswin64c.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          $pdf = Get-ChildItem "$tools\poppler-bin" -Recurse -Filter pdftotext.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          $so  = Get-ChildItem "$tools\libreoffice" -Recurse -Filter soffice.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          $rows += Probe "ffmpeg" "$tools\ffmpeg.exe" "-version"
+          $rows += Probe "ffprobe" "$tools\ffprobe.exe" "-version"
+          $rows += Probe "magick" "$tools\magick.exe" "-version"
+          $rows += Probe "7z" "$tools\7z.exe" "i"
+          $rows += Probe "qpdf" "$tools\qpdf.exe" "--version"
+          if ($gs) { $rows += Probe "ghostscript" $gs.FullName "--version" } else { $rows += "ghostscript | مفقود" }
+          if ($pdf) { $rows += Probe "poppler" $pdf.FullName "-v" } else { $rows += "poppler | مفقود" }
+          if ($so) { $rows += Probe "libreoffice" $so.FullName "--version" } else { $rows += "libreoffice | مفقود" }
 
-      - name: كتابة ملف تعليمات داخل الحزمة
-        shell: pwsh
-        run: |
+          $size = [math]::Round((Get-ChildItem $env:ROOT_DIR -Recurse | Measure-Object Length -Sum).Sum / 1MB, 1)
+          "size=$size" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Add-Content $env:GITHUB_STEP_SUMMARY "### محتوى الحزمة`n"
+          Add-Content $env:GITHUB_STEP_SUMMARY "| الأداة | الحالة |"
+          Add-Content $env:GITHUB_STEP_SUMMARY "|---|---|"
+          foreach ($r in $rows) {
+            $p = $r -split '\|'
+            Add-Content $env:GITHUB_STEP_SUMMARY "| $($p[0].Trim()) | $($p[1].Trim()) |"
+          }
+          Add-Content $env:GITHUB_STEP_SUMMARY "`nالحجم الكلي: **$size م.ب**"
+
           $readme = @"
-          # تحويل — Convert (نسخة محمولة كاملة)
+          تحويل — Convert (نسخة محمولة كاملة)
+          =====================================
+          1) فُكّ ضغط هذا المجلد في أي مكان.
+          2) شغّل convert.exe.
+          3) افتح «الفحص الشامل» واضغط «ابدأ الفحص الشامل» — يجب أن تظهر 8/8.
+          4) اسحب ملفاتك إلى النافذة واختر العملية.
 
-          1. فُكّ ضغط المجلد في أي مكان (سطح المكتب مثلًا).
-          2. شغّل convert.exe.
-          3. افتح «الفحص الشامل» في التطبيق واضغط الزر — يجب أن تظهر 8/8.
-          4. اسحب ملفاتك إلى النافذة واختر العملية.
-
-          كل شيء يعمل بلا إنترنت. الأدوات كلها داخل مجلد tools.
-          "نسخة واحدة فقط: تشغيل التطبيق وهو شغال يُظهر النافذة القائمة.
+          كل شيء يعمل بلا إنترنت، والأدوات كلها داخل مجلد tools.
+          نسخة واحدة فقط: تشغيل التطبيق وهو شغال يُظهر النافذة القائمة.
           "@
           Set-Content -Path "$env:ROOT_DIR\اقرأني.txt" -Value $readme -Encoding utf8
-          Get-ChildItem "$env:ROOT_DIR" | Select-Object Name, Length | Format-Table | Out-String | Write-Output
-          "tools size: $([math]::Round((Get-ChildItem "$env:TOOLS_DIR" -Recurse | Measure-Object Length -Sum).Sum / 1MB, 1)) MB" | Write-Output
 
       - uses: actions/upload-artifact@v4
         with:
