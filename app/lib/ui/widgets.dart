@@ -504,7 +504,7 @@ class _AuroraBackgroundState extends State<AuroraBackground>
   Widget build(BuildContext context) {
     final palette = context.palette;
     final isDark = context.isDark;
-    final strength = isDark ? 0.16 : 0.10;
+    final strength = isDark ? 0.16 : 0.13;
 
     return Stack(
       fit: StackFit.expand,
@@ -516,7 +516,7 @@ class _AuroraBackgroundState extends State<AuroraBackground>
               end: Alignment.bottomLeft,
               colors: isDark
                   ? const [Color(0xFF0A0C13), Color(0xFF0B1020), Color(0xFF090A10)]
-                  : const [Color(0xFFF7F8FC), Color(0xFFEFF2FA), Color(0xFFF9FAFD)],
+                  : const [Color(0xFFF4F6FB), Color(0xFFE8ECF7), Color(0xFFF1F3F9)],
             ),
           ),
         ),

@@ -13,10 +13,10 @@ class AppColors {
   static const darkMuted = Color(0xFF96A0B5);
 
   // الوضع الفاتح
-  static const lightBg = Color(0xFFF5F6FA);
+  static const lightBg = Color(0xFFEEF0F6);
   static const lightSurface = Color(0xFFFFFFFF);
-  static const lightSurfaceAlt = Color(0xFFEFF1F7);
-  static const lightBorder = Color(0x14000000);
+  static const lightSurfaceAlt = Color(0xFFE3E7F0);
+  static const lightBorder = Color(0x1F1B2240);
   static const lightText = Color(0xFF111629);
   static const lightMuted = Color(0xFF606B83);
 

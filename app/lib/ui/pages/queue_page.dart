@@ -40,7 +40,7 @@ class QueuePage extends StatelessWidget {
                   const Spacer(),
                   if (queue.isRunning)
                     GhostButton(
-                      label: 'إلغاء الجارية',
+                      label: 'إلغاء',
                       icon: Icons.stop_circle_outlined,
                       dense: true,
                       onPressed: queue.cancelActive,
@@ -48,8 +48,9 @@ class QueuePage extends StatelessWidget {
                   if (queue.queuedCount > 0) ...[
                     const SizedBox(width: 8),
                     GhostButton(
-                      label: 'إلغاء المنتظرة',
+                      label: 'المنتظرة',
                       icon: Icons.clear_all_rounded,
+                      tooltip: 'إلغاء كل المهام المنتظرة',
                       dense: true,
                       onPressed: queue.cancelQueued,
                     ),
@@ -57,8 +58,9 @@ class QueuePage extends StatelessWidget {
                   if (queue.tasks.any((t) => t.isFinished)) ...[
                     const SizedBox(width: 8),
                     GhostButton(
-                      label: 'إفراغ المنتهية',
+                      label: 'إفراغ',
                       icon: Icons.cleaning_services_rounded,
+                      tooltip: 'إفراغ المهام المنتهية',
                       dense: true,
                       onPressed: queue.clearFinished,
                     ),
@@ -133,7 +135,7 @@ class _Summary extends StatelessWidget {
                   ),
                   const SizedBox(width: 9),
                   Text(item.$1, style: context.theme.textTheme.labelMedium),
-                  const Spacer(),
+                  const SizedBox(width: 8),
                   Text(
                     '${item.$2}',
                     style: context.theme.textTheme.titleMedium?.copyWith(

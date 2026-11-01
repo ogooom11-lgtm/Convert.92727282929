@@ -72,7 +72,8 @@ jobs:
             @{ section = "workspace"; file = "01-workspace.png" },
             @{ section = "queue";     file = "02-queue.png" },
             @{ section = "tools";     file = "03-tools.png" },
-            @{ section = "settings";  file = "04-settings.png" }
+            @{ section = "settings";  file = "04-settings.png" },
+            @{ section = "settings";  file = "06-settings-dark.png" }
           )
           foreach ($shot in $shots) {
             $p = Start-Process -FilePath $exe -ArgumentList "--section=$($shot.section)" -PassThru
