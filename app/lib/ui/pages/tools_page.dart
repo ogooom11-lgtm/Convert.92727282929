@@ -213,14 +213,18 @@ class _PolicyCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text('إعداد ImageMagick (PDF)',
                         style: context.theme.textTheme.titleMedium),
-                    const SizedBox(width: 8),
                     if (fix != null)
                       Pill(
-                        fix.changed ? 'أُصلح تلقائيًا' : (ok ? 'سليم' : 'يحتاج مراجعة'),
+                        fix.changed
+                            ? 'أُصلح تلقائيًا'
+                            : (ok ? 'سليم' : 'يحتاج مراجعة'),
                         color: tone,
                         dense: true,
                       ),
