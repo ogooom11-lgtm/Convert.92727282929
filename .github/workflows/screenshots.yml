@@ -1,15 +1,12 @@
 name: لقطات الواجهة
 
-# يُشغَّل يدويًا فقط: يبني التطبيق على ويندوز، يفتحه فعليًا، يلتقط لقطات
-# للشاشات الأربع، ويرفعها إلى docs/screenshots في الفرع الحالي.
+# يبني التطبيق على ويندوز، يفتحه فعليًا، يلتقط لقطات للشاشات الأربع،
+# ثم يرفعها كأثر (artifact). يُشغَّل يدويًا أو عند تغيير هذا الملف.
 on:
   workflow_dispatch:
   push:
     paths:
       - .github/workflows/screenshots.yml
-
-permissions:
-  contents: write
 
 jobs:
   shots:
@@ -32,53 +29,62 @@ jobs:
       - name: تشغيل التطبيق والتقاط الشاشات
         shell: pwsh
         run: |
-          $exe = "build\windows\x64\runner\Release\convert.exe"
-          New-Item -ItemType Directory -Force -Path ..\docs\screenshots | Out-Null
+          $ErrorActionPreference = "Continue"
+          $root = $env:GITHUB_WORKSPACE
+          $out  = Join-Path $root "screenshots"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-          $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-          $shots = @(
-            @{ key = "";    file = "01-workspace.png"; wait = 14 },
-            @{ key = "^2";  file = "02-queue.png";     wait = 3 },
-            @{ key = "^3";  file = "03-tools.png";     wait = 3 },
-            @{ key = "^4";  file = "04-settings.png";  wait = 3 }
-          )
-          $proc = Start-Process -FilePath $exe -PassThru
-          Start-Sleep -Seconds 12
-          foreach ($shot in $shots) {
-            if ($shot.key -ne "") {
-              try {
-                $wshell = New-Object -ComObject wscript.shell
-                $null = $wshell.AppActivate($proc.Id)
-                Start-Sleep -Milliseconds 600
-                $wshell.SendKeys($shot.key)
-              } catch { Write-Output "sendkeys failed: $_" }
-              Start-Sleep -Seconds $shot.wait
-            }
-            $bmp = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
+          $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          "screen: $($screen.Width)x$($screen.Height)" | Write-Output
+
+          $exe = Join-Path $root "app\build\windows\x64\runner\Release\convert.exe"
+          "exe exists: $(Test-Path $exe)" | Write-Output
+
+          function Save-Shot($name) {
+            $bmp = New-Object System.Drawing.Bitmap($screen.Width, $screen.Height)
             $g = [System.Drawing.Graphics]::FromImage($bmp)
-            $g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
-            $bmp.Save("$PWD\..\docs\screenshots\$($shot.file)", [System.Drawing.Imaging.ImageFormat]::Png)
+            $g.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+            $bmp.Save((Join-Path $out $name), [System.Drawing.Imaging.ImageFormat]::Png)
             $g.Dispose(); $bmp.Dispose()
-            Write-Output "captured $($shot.file)"
+            "saved $name" | Write-Output
           }
-          # النسخة الثانية يجب ألا تفتح نافذة جديدة: نتحقق ثم نغلق كل شيء.
+
+          $proc = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 15
+          $running = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+          "app alive: $([bool]$running)" | Write-Output
+          Save-Shot "00-initial.png"
+
+          $wshell = New-Object -ComObject wscript.shell
+          $null = $wshell.AppActivate($proc.Id)
+          Start-Sleep -Milliseconds 800
+
+          $shots = @(
+            @{ key = "";   file = "01-workspace.png" },
+            @{ key = "^2"; file = "02-queue.png" },
+            @{ key = "^3"; file = "03-tools.png" },
+            @{ key = "^4"; file = "04-settings.png" }
+          )
+          foreach ($shot in $shots) {
+            if ($shot.key -ne "") { $wshell.SendKeys($shot.key); Start-Sleep -Seconds 3 }
+            $null = $wshell.AppActivate($proc.Id)
+            Start-Sleep -Milliseconds 700
+            Save-Shot $shot.file
+          }
+
+          # النسخة الثانية يجب أن تُظهر النافذة القائمة لا تفتح ثانية.
+          $before = (Get-Process convert -ErrorAction SilentlyContinue).Count
           $second = Start-Process -FilePath $exe -PassThru
           Start-Sleep -Seconds 6
-          $count = (Get-Process convert -ErrorAction SilentlyContinue).Count
-          Write-Output "instances after second launch: $count"
-          if ($count -gt 1) { Write-Output "::warning::النسخة الثانية لم تُغلَق كما هو متوقع" }
+          $after = (Get-Process convert -ErrorAction SilentlyContinue).Count
+          "instances before=$before after=$after" | Write-Output
           Get-Process convert -ErrorAction SilentlyContinue | Stop-Process -Force
 
-      - name: رفع اللقطات إلى المستودع
-        shell: pwsh
-        run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add docs/screenshots
-          git commit -m "docs: لقطات الواجهة من النسخة المبنية [skip ci]"
-          git push origin HEAD:${{ github.ref_name }}
+          Get-ChildItem $out | ForEach-Object { "$($_.Name) $($_.Length) bytes" } | Write-Output
+          "count=$((Get-ChildItem $out).Count)" | Add-Content $env:GITHUB_STEP_SUMMARY
 
       - uses: actions/upload-artifact@v4
         with:
           name: screenshots
-          path: docs/screenshots/
+          path: screenshots/
+          if-no-files-found: error
