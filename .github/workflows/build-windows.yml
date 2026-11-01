@@ -31,14 +31,11 @@ jobs:
         shell: pwsh
         run: |
           flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 |
-            Tee-Object -FilePath analyze.log | Write-Output
-          if ($LASTEXITCODE -ne 0) {
-            $errors = Get-Content analyze.log | Select-String -Pattern "error •" | Select-Object -First 20
-            "### أخطاء التحليل`n\`\`\`" | Add-Content $env:GITHUB_STEP_SUMMARY
-            $errors | ForEach-Object { $_.Line } | Add-Content $env:GITHUB_STEP_SUMMARY
-            "```" | Add-Content $env:GITHUB_STEP_SUMMARY
-            throw "فشل التحليل"
-          }
+            Tee-Object -FilePath analyze.log
+          $code = $LASTEXITCODE
+          Write-Output "analyze exit code: $code"
+          Get-Content analyze.log -Tail 30 | Add-Content $env:GITHUB_STEP_SUMMARY
+          if ($code -ne 0) { exit $code }
 
       - name: الاختبارات
         run: flutter test
@@ -85,8 +82,8 @@ jobs:
           $fence = [char]0x0060 + [char]0x0060 + [char]0x0060
           $lines = @("### فشل بناء ويندوز", "", $fence)
           if (Test-Path analyze.log) {
-            $lines += "**نتيجة التحليل (آخر ٢٥ سطرًا):**"
-            $lines += (Get-Content analyze.log -Tail 25)
+            $lines += "**نتيجة التحليل (آخر ٣٠ سطرًا):**"
+            $lines += (Get-Content analyze.log -Tail 30)
             $lines += ""
           }
           if (Test-Path build-tail.txt) {
