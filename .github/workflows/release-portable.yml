@@ -48,6 +48,7 @@ jobs:
             $sevenZip = "$env:RUNNER_TEMP\7zr.exe"
           }
           "SEVEN_ZIP=$sevenZip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $sevenZip | Set-Content "$env:RUNNER_TEMP\sevenzip.txt" -Encoding utf8
           Write-Output "7z: $sevenZip"
 
       # ── FFmpeg + FFprobe ──────────────────────────────────────────
@@ -74,7 +75,8 @@ jobs:
           if (-not $asset) { throw "لم يُعثر على حزمة ImageMagick المحمولة" }
           Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "$env:RUNNER_TEMP\magick.7z"
           $tmp = "$env:RUNNER_TEMP\imagemagick"
-          & $env:SEVEN_ZIP x "$env:RUNNER_TEMP\magick.7z" "-o$tmp" -y | Out-Null
+          $sevenZip = if ($env:SEVEN_ZIP) { $env:SEVEN_ZIP } else { Get-Content "$env:RUNNER_TEMP\sevenzip.txt" }
+          & $sevenZip x "$env:RUNNER_TEMP\magick.7z" "-o$tmp" -y | Out-Null
           $exe = Get-ChildItem $tmp -Recurse -Filter magick.exe | Select-Object -First 1
           if (-not $exe) { throw "magick.exe غير موجود داخل الحزمة" }
           # ImageMagick محمول: نحتاج كل ما بجانبه (DLLs + configure + modules)
@@ -84,22 +86,44 @@ jobs:
       # ── 7-Zip ─────────────────────────────────────────────────────
       - name: تنزيل 7-Zip
         shell: pwsh
+        continue-on-error: true
         run: |
-          $ErrorActionPreference = "Stop"
+          $ErrorActionPreference = "Continue"
           $rel = Invoke-RestMethod "https://api.github.com/repos/ip7z/7zip/releases/latest"
           $extra = $rel.assets | Where-Object { $_.name -like "*-extra.7z" } | Select-Object -First 1
-          if (-not $extra) { throw "لم يُعثر على حزمة 7-Zip Extra" }
-          Invoke-WebRequest -Uri $extra.browser_download_url -OutFile "$env:RUNNER_TEMP\7z-extra.7z"
-          $tmp = "$env:RUNNER_TEMP\7z-extra"
-          & $env:SEVEN_ZIP x "$env:RUNNER_TEMP\7z-extra.7z" "-o$tmp" -y | Out-Null
-          $exe = Get-ChildItem $tmp -Recurse -Filter 7z.exe | Select-Object -First 1
-          if (-not $exe) { throw "7z.exe غير موجود في حزمة Extra" }
-          Copy-Item $exe.FullName "$env:TOOLS_DIR\7z.exe" -Force
-          $dll = Get-ChildItem $exe.DirectoryName -Filter 7z.dll | Select-Object -First 1
-          if ($dll) { Copy-Item $dll.FullName "$env:TOOLS_DIR\7z.dll" -Force }
-          & "$env:TOOLS_DIR\7z.exe" i | Select-Object -First 3
+          if ($extra) {
+            try {
+              Write-Output "7z extra: $($extra.name) $([math]::Round($extra.size/1MB,1)) MB"
+              Invoke-WebRequest -Uri $extra.browser_download_url -OutFile "$env:RUNNER_TEMP\7z-extra.7z"
+              $tmp = "$env:RUNNER_TEMP\7z-extra"
+              & $env:SEVEN_ZIP x "$env:RUNNER_TEMP\7z-extra.7z" "-o$tmp" -y | Out-Null
+              $exe = Get-ChildItem $tmp -Recurse -Filter 7z.exe | Select-Object -First 1
+              if ($exe) {
+                Copy-Item $exe.FullName "$env:TOOLS_DIR\7z.exe" -Force
+                $dll = Get-ChildItem $exe.DirectoryName -Filter 7z.dll | Select-Object -First 1
+                if ($dll) { Copy-Item $dll.FullName "$env:TOOLS_DIR\7z.dll" -Force }
+                & "$env:TOOLS_DIR\7z.exe" i | Select-Object -First 3
+                exit 0
+              }
+              Write-Output "::warning::7z.exe غير موجود داخل حزمة Extra"
+            } catch {
+              Write-Output "::warning::فشل تنزيل 7-Zip Extra: $_"
+            }
+          } else {
+            Write-Output "::warning::لا توجد حزمة 7-Zip Extra في الإصدار الأخير"
+          }
+          # بديل: نسخ التثبيت الكامل الموجود على الـ runner.
+          $installed = "C:\Program Files\7-Zip"
+          if (Test-Path "$installed\7z.exe") {
+            Copy-Item "$installed\7z.exe" "$env:TOOLS_DIR\" -Force
+            Copy-Item "$installed\7z.dll" "$env:TOOLS_DIR\" -Force
+            & "$env:TOOLS_DIR\7z.exe" i | Select-Object -First 2
+            Write-Output "7-Zip من تثبيت الـ runner"
+            exit 0
+          }
+          Write-Output "::error::تعذّر تجهيز 7-Zip"
+          exit 1
 
-      # ── qpdf ──────────────────────────────────────────────────────
       - name: تنزيل qpdf
         shell: pwsh
         run: |
@@ -168,7 +192,8 @@ jobs:
           if (-not $exe) {
             Write-Output "الاستخراج الإداري لم ينتج soffice.exe — نجرّب فكّ محتوى MSI"
             Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
-            & $env:SEVEN_ZIP x "$env:RUNNER_TEMP\lo.msi" "-o$target" -y | Out-Null
+            $sevenZip = if ($env:SEVEN_ZIP) { $env:SEVEN_ZIP } else { Get-Content "$env:RUNNER_TEMP\sevenzip.txt" }
+            & $sevenZip x "$env:RUNNER_TEMP\lo.msi" "-o$target" -y | Out-Null
             $exe = Get-ChildItem $target -Recurse -Filter soffice.exe -ErrorAction SilentlyContinue | Select-Object -First 1
           }
           if (-not $exe) { throw "soffice.exe غير موجود بعد كل المحاولات" }
