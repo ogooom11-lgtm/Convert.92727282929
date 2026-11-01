@@ -104,7 +104,7 @@ class SelfTestPage extends StatelessWidget {
           const SizedBox(height: 16),
           LayoutBuilder(
             builder: (context, constraints) {
-              final columns = constraints.maxWidth >= 760 ? 2 : 1;
+              final columns = constraints.maxWidth >= 620 ? 2 : 1;
               if (columns == 1) {
                 return Column(
                   children: [
