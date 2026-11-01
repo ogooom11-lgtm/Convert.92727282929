@@ -6,7 +6,7 @@ name: حزمة ويندوز الكاملة (التطبيق + الأدوات)
 # الأدوات ليست في المستودع لأن حجمها ~٣٢٠ م.ب؛ هذه الحزمة تحملها كأثر.
 on:
   workflow_dispatch:
-  # rebuild marker: 1
+  # rebuild marker: 2
   push:
     paths:
       - .github/workflows/release-portable.yml
