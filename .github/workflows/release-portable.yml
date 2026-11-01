@@ -11,7 +11,7 @@ on:
       - .github/workflows/release-portable.yml
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 jobs:
@@ -366,9 +366,38 @@ jobs:
           )
           Set-Content -Path "$env:ROOT_DIR\اقرأني.txt" -Value $readme -Encoding utf8
 
+      # نُصدر الحزمة كملف ZIP واحد ونرفعها كإصدار GitHub — رابط تنزيل عادي
+      # يفتحه المتصفح مباشرة، بلا حاجة لتسجيل الدخول أو فكّ artifacts.
+      - name: ضغط الحزمة في ملف واحد
+        shell: pwsh
+        run: |
+          $sevenZip = if ($env:SEVEN_ZIP) { $env:SEVEN_ZIP } else { Get-Content "$env:RUNNER_TEMP\sevenzip.txt" }
+          $zip = "$env:GITHUB_WORKSPACE\Convert-portable-win64.zip"
+          & $sevenZip a -tzip $zip "$env:ROOT_DIR\*" -mx=5 -bso0 -bsp0 | Out-Null
+          $mb = [math]::Round((Get-Item $zip).Length / 1MB, 1)
+          Write-Output "zip: $mb MB"
+          "ZIP_PATH=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ZIP_MB=$mb" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: نشر الحزمة كإصدار قابل للتنزيل
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          $tag = "portable-latest"
+          # نحذف الإصدار السابق ونعيد إنشاءه حتى يبقى الرابط ثابتًا.
+          gh release delete $tag --yes --cleanup-tag 2>$null
+          gh release create $tag "$env:ZIP_PATH" `
+            --title "Convert — النسخة الكاملة (ويندوز)" `
+            --notes "حزمة محمولة فيها التطبيق والأدوات الثماني معًا. نزّل الملف، فُكّ ضغطه، شغّل convert.exe، ثم افتح «الفحص الشامل». كل شيء يعمل بلا إنترنت." `
+            --latest
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error::تعذّر نشر الإصدار" ; exit 1 }
+          Write-Output "https://github.com/${{ github.repository }}/releases/tag/$tag"
+
       - uses: actions/upload-artifact@v4
         with:
           name: Convert-portable-win64
           path: Convert-portable/
-          compression-level: 6
+          compression-level: 0
           if-no-files-found: error
