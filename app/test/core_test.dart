@@ -1,4 +1,5 @@
 import 'package:convert/core/capabilities.dart';
+import 'package:convert/core/imagemagick_policy.dart';
 import 'package:convert/core/command_builder.dart';
 import 'package:convert/core/tool_registry.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -58,6 +59,38 @@ void main() {
       expect(registry.statusOf(ToolId.ffmpeg).isReady, isFalse);
       expect(registry.readyCount, 0);
       expect(registry.availableOperationsFor(FileCategory.video), isEmpty);
+    });
+  });
+
+  group('سياسة ImageMagick', () {
+    test('يزيل الحجب عن PDF/PS ويُبقي بقية الحمايات', () {
+      const xml = '<?xml version="1.0"?>'
+          '<policymap>'
+          '<policy domain="coder" rights="none" pattern="{PS,PS2,PS3,EPS,PDF,XPS}" />'
+          '<policy domain="coder" rights="none" pattern="HTTPS" />'
+          '<policy domain="path" rights="none" pattern="@*" />'
+          '</policymap>';
+      final result = ImageMagickPolicy.rewrite(xml);
+      expect(result.changed, isTrue);
+      expect(result.content, isNot(contains('pattern="{PS')));
+      expect(result.content, contains('pattern="HTTPS"'));
+      expect(result.content, contains('pattern="@*"'));
+    });
+
+    test('يُبقي الصيغ غير المسموحة داخل نفس العنصر', () {
+      const xml =
+          '<policy domain="coder" rights="none" pattern="{PDF,MVG,HTTPS}" />';
+      final result = ImageMagickPolicy.rewrite(xml);
+      expect(result.changed, isTrue);
+      expect(result.content, contains('pattern="{MVG,HTTPS}"'));
+      expect(result.content, isNot(contains('PDF')));
+    });
+
+    test('لا يلمس ملفًا سليمًا', () {
+      const xml = '<policy domain="coder" rights="read|write" pattern="PDF" />';
+      final result = ImageMagickPolicy.rewrite(xml);
+      expect(result.changed, isFalse);
+      expect(result.content, xml);
     });
   });
 }

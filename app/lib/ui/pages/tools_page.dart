@@ -97,35 +97,7 @@ class ToolsPage extends StatelessWidget {
               ),
             ),
           const SizedBox(height: 6),
-          GlassCard(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.only(top: 2, left: 8),
-                  child: Icon(Icons.info_outline_rounded,
-                      size: 16, color: AppColors.info),
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('إعداد إلزامي واحد',
-                          style: context.theme.textTheme.titleMedium),
-                      const SizedBox(height: 4),
-                      Text(
-                        'بناءات ويندوز من ImageMagick تحجب قراءة وكتابة PDF وPS '
-                        'افتراضيًا. بدون تعديل policy.xml ستفشل عمليات PDF→صور '
-                        'وEPS→PDF بلا رسالة واضحة. راجع ملف docs/الأدوات.md.',
-                        style: context.theme.textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+          _PolicyCard(state: state),
         ],
       ),
     );
@@ -209,5 +181,73 @@ class _ToolRow extends StatelessWidget {
           op.inputCategories.contains(FileCategory.audio);
     }
     return false;
+  }
+}
+
+/// حالة إعداد ImageMagick — يُصلحه التطبيق تلقائيًا ويُخبر المستخدم بذلك.
+class _PolicyCard extends StatelessWidget {
+  const _PolicyCard({required this.state});
+
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final fix = state.policyFix;
+    final ok = fix?.ok ?? true;
+    final tone = ok ? AppColors.success : AppColors.warning;
+
+    return GlassCard(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2, left: 8),
+            child: Icon(
+              ok ? Icons.verified_rounded : Icons.info_outline_rounded,
+              size: 16,
+              color: tone,
+            ),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text('إعداد ImageMagick (PDF)',
+                        style: context.theme.textTheme.titleMedium),
+                    const SizedBox(width: 8),
+                    if (fix != null)
+                      Pill(
+                        fix.changed ? 'أُصلح تلقائيًا' : (ok ? 'سليم' : 'يحتاج مراجعة'),
+                        color: tone,
+                        dense: true,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  fix?.message ??
+                      'يُفحص الإعداد تلقائيًا عند فحص الأدوات. التطبيق يسمح '
+                          'بصيغ PDF وPS وEPS فقط، ويترك بقية الحمايات كما هي.',
+                  style: context.theme.textTheme.bodySmall,
+                ),
+                if (fix?.policyPath != null) ...[
+                  const SizedBox(height: 6),
+                  SelectableText(
+                    fix!.policyPath!,
+                    textDirection: TextDirection.ltr,
+                    style: context.theme.textTheme.bodySmall?.copyWith(
+                      fontSize: 10.5,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

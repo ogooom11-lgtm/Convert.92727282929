@@ -7,6 +7,7 @@ import 'capabilities.dart';
 import 'command_builder.dart';
 import 'desktop_channel.dart';
 import 'file_entry.dart';
+import 'imagemagick_policy.dart';
 import 'platform.dart';
 import 'self_test.dart';
 import 'task_queue.dart';
@@ -41,6 +42,9 @@ class AppState extends ChangeNotifier {
   final Map<ToolId, SelfTestResult> _testResults = {};
   ToolId? _testingTool;
   bool _testingAll = false;
+
+  ImageMagickPolicy? _policyFix;
+  ImageMagickPolicy? get policyFix => _policyFix;
 
   Map<ToolId, SelfTestResult> get testResults => Map.unmodifiable(_testResults);
   ToolId? get testingTool => _testingTool;
@@ -318,6 +322,15 @@ class AppState extends ChangeNotifier {
     _healthCheckTick++;
     notifyListeners();
     await registry.scan();
+
+    // إصلاح سياسة ImageMagick تلقائيًا حتى تعمل عمليات PDF/فيكتور.
+    final magick = registry.statusOf(ToolId.imagemagick);
+    if (magick.isReady && magick.executablePath.isNotEmpty) {
+      _policyFix = ImageMagickPolicy.ensure(
+        magickExecutable: magick.executablePath,
+      );
+    }
+
     _scanning = false;
     _pruneSelection();
     notifyListeners();
