@@ -292,62 +292,78 @@ jobs:
       - name: التحقق النهائي من الحزمة
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Continue"
           $tools = $env:TOOLS_DIR
           $rows = @()
-          function Probe($name, $path, $args) {
-            if (-not (Test-Path $path)) {
-              Write-Output "::error::$name مفقود ($path)"
-              return "$name | مفقود"
+
+          function Probe([string]$label, [string]$path, [string[]]$flags) {
+            if ([string]::IsNullOrEmpty($path) -or -not (Test-Path $path)) {
+              Write-Output "::error::$label مفقود"
+              return "$label|مفقود"
             }
             try {
-              $out = & $path $args 2>&1 | Select-Object -First 1
-              Write-Output "$name : $out"
-              return "$name | يعمل"
+              $out = (& $path @flags 2>&1 | Select-Object -First 1)
+              Write-Output "$label -> $out"
+              return "$label|يعمل"
             } catch {
-              Write-Output "::error::$name لا يعمل: $_"
-              return "$name | لا يعمل"
+              Write-Output "::error::$label لا يعمل: $_"
+              return "$label|لا يعمل"
             }
           }
+
           $gs = Get-ChildItem "$tools\gs-bin" -Recurse -Filter gswin64c.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-          $pdf = Get-ChildItem "$tools\poppler-bin" -Recurse -Filter pdftotext.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-          $so  = Get-ChildItem "$tools\libreoffice" -Recurse -Filter soffice.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-          $rows += Probe "ffmpeg" "$tools\ffmpeg.exe" "-version"
-          $rows += Probe "ffprobe" "$tools\ffprobe.exe" "-version"
-          $rows += Probe "magick" "$tools\magick.exe" "-version"
-          $rows += Probe "7z" "$tools\7z.exe" "i"
-          $rows += Probe "qpdf" "$tools\qpdf.exe" "--version"
-          if ($gs) { $rows += Probe "ghostscript" $gs.FullName "--version" } else { $rows += "ghostscript | مفقود" }
-          if ($pdf) { $rows += Probe "poppler" $pdf.FullName "-v" } else { $rows += "poppler | مفقود" }
-          if ($so) { $rows += Probe "libreoffice" $so.FullName "--version" } else { $rows += "libreoffice | مفقود" }
+          $pdftotext = Get-ChildItem "$tools\poppler-bin" -Recurse -Filter pdftotext.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          $so = Get-ChildItem "$tools\libreoffice" -Recurse -Filter soffice.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+
+          $rows += Probe "ffmpeg" "$tools\ffmpeg.exe" @("-version")
+          $rows += Probe "ffprobe" "$tools\ffprobe.exe" @("-version")
+          $rows += Probe "magick" "$tools\magick.exe" @("-version")
+          $rows += Probe "7z" "$tools\7z.exe" @("i")
+          $rows += Probe "qpdf" "$tools\qpdf.exe" @("--version")
+          $rows += Probe "ghostscript" $(if ($gs) { $gs.FullName } else { "" }) @("--version")
+          $rows += Probe "poppler" $(if ($pdftotext) { $pdftotext.FullName } else { "" }) @("-v")
+          $rows += Probe "libreoffice" $(if ($so) { $so.FullName } else { "" }) @("--version")
 
           $operations = 30
           if (-not $so) {
             $operations = 24
-            Write-Output "::warning::LibreOffice مفقود: 6 عمليات مستندات/جداول/عروض لن تعمل"
+            Write-Output "::warning::LibreOffice مفقود: عمليات المستندات والجداول والعروض لن تعمل"
           }
-          $size = [math]::Round((Get-ChildItem $env:ROOT_DIR -Recurse | Measure-Object Length -Sum).Sum / 1MB, 1)
-          "size=$size" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Add-Content $env:GITHUB_STEP_SUMMARY "### محتوى الحزمة`n"
-          Add-Content $env:GITHUB_STEP_SUMMARY "| الأداة | الحالة |"
-          Add-Content $env:GITHUB_STEP_SUMMARY "|---|---|"
+          $size = [math]::Round((Get-ChildItem $env:ROOT_DIR -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1)
+
+          $summary = @()
+          $summary += "### محتوى الحزمة"
+          $summary += ""
+          $summary += "| الأداة | الحالة |"
+          $summary += "|---|---|"
           foreach ($r in $rows) {
-            $p = $r -split '\|'
-            Add-Content $env:GITHUB_STEP_SUMMARY "| $($p[0].Trim()) | $($p[1].Trim()) |"
+            if ($r -isnot [string]) { continue }
+            $parts = $r -split '\|'
+            if ($parts.Count -lt 2) { continue }
+            $summary += "| $($parts[0].Trim()) | $($parts[1].Trim()) |"
           }
-          Add-Content $env:GITHUB_STEP_SUMMARY "`nالحجم الكلي: **$size م.ب**"
-          Add-Content $env:GITHUB_STEP_SUMMARY "`nالعمليات المتاحة: **$operations من 30**"
+          $summary += ""
+          $summary += "الحجم الكلي: **$size م.ب** · العمليات المتاحة: **$operations من 30**"
+          $summary | Add-Content $env:GITHUB_STEP_SUMMARY
+          Write-Output ($summary -join "`n")
 
-          $readme = @"
-          تحويل — Convert (نسخة محمولة كاملة)
-          =====================================
-          1) فُكّ ضغط هذا المجلد في أي مكان.
-          2) شغّل convert.exe.
-          3) افتح «الفحص الشامل» واضغط «ابدأ الفحص الشامل» — يجب أن تظهر 8/8.
-          4) اسحب ملفاتك إلى النافذة واختر العملية.
-
-          كل شيء يعمل بلا إنترنت، والأدوات كلها داخل مجلد tools.
-          نسخة واحدة فقط: تشغيل التطبيق وهو شغال يُظهر النافذة القائمة.
-          "@
+          $readme = @(
+            "تحويل — Convert (نسخة محمولة كاملة)",
+            "=====================================",
+            "",
+            "1) فُكّ ضغط هذا المجلد في أي مكان (المسار العربي مدعوم).",
+            "2) شغّل convert.exe.",
+            "3) افتح «الفحص الشامل» واضغط «ابدأ الفحص الشامل» — كل أداة تُنتج ملفًا حقيقيًا.",
+            "4) اسحب ملفاتك إلى النافذة واختر العملية.",
+            "",
+            "كل شيء يعمل بلا إنترنت، والأدوات كلها داخل مجلد tools:",
+            "  ffmpeg.exe · ffprobe.exe · magick.exe · 7z.exe · qpdf.exe",
+            "  gs-bin\ ... gswin64c.exe · poppler-bin\ ... pdftotext.exe",
+            "  libreoffice\ ... soffice.exe",
+            "",
+            "نسخة واحدة فقط: تشغيل التطبيق وهو شغال يُظهر النافذة القائمة.",
+            "المخرجات تُكتب في مجلد Convert-out بجوار ملفاتك، ولا يُستبدل أي ملف موجود."
+          )
           Set-Content -Path "$env:ROOT_DIR\اقرأني.txt" -Value $readme -Encoding utf8
 
       - uses: actions/upload-artifact@v4
