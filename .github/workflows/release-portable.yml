@@ -194,38 +194,80 @@ jobs:
           Copy-Item $exe.DirectoryName "$env:TOOLS_DIR\poppler-bin" -Recurse -Force
           Write-Output "poppler: $($exe.DirectoryName)"
 
-      # ── LibreOffice ───────────────────────────────────────────────
+      # ── LibreOffice (اختياري: لا يوقف الحزمة) ─────────────────────
+      # نصانبانج: المستندات والجداول والعروض. إن فشل تنزيله تبقى بقية
+      # العمليات (٢٤ عملية) تعمل، ويُذكر ذلك صريحًا في ملخص الحزمة.
       - name: تنزيل LibreOffice
         shell: pwsh
-        timeout-minutes: 25
+        continue-on-error: true
+        timeout-minutes: 30
         run: |
-          $ErrorActionPreference = "Stop"
-          $listing = Invoke-WebRequest "https://download.documentfoundation.org/libreoffice/stable/" -UseBasicParsing
-          $ver = ([regex]::Matches($listing.Content, '(\d+\.\d+\.\d+)/') |
-            ForEach-Object { $_.Groups[1].Value } | Sort-Object -Descending -Unique | Select-Object -First 1)
-          if (-not $ver) { throw "تعذّر تحديد إصدار LibreOffice الحالي" }
-          $url = "https://download.documentfoundation.org/libreoffice/stable/$ver/win/x86_64/LibreOffice_${ver}_Win_x86-64.msi"
-          Write-Output "using $url"
-          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\lo.msi"
-          Write-Output "msi size: $([math]::Round((Get-Item "$env:RUNNER_TEMP\lo.msi").Length / 1MB, 1)) MB"
+          $ErrorActionPreference = "Continue"
           $target = "$env:TOOLS_DIR\libreoffice"
-          # استخراج إداري (بلا تثبيت داخل النظام)
-          $msi = Start-Process msiexec.exe -ArgumentList "/a","$env:RUNNER_TEMP\lo.msi","/qn","TARGETDIR=$target" -PassThru
-          if (-not $msi.WaitForExit(900000)) {
-            Write-Output "::warning::انتهت مهلة استخراج LibreOffice"
-            Stop-Process -Id $msi.Id -Force -ErrorAction SilentlyContinue
+          $msi = "$env:RUNNER_TEMP\lo.msi"
+          $sevenZip = if ($env:SEVEN_ZIP) { $env:SEVEN_ZIP } else { Get-Content "$env:RUNNER_TEMP\sevenzip.txt" }
+
+          function Try-Download([string]$url) {
+            try {
+              Write-Output "GET $url"
+              Invoke-WebRequest -Uri $url -OutFile $msi -MaximumRedirection 8 -TimeoutSec 900
+              $size = (Get-Item $msi).Length
+              Write-Output "size: $([math]::Round($size/1MB,1)) MB"
+              return $size -gt 150MB
+            } catch {
+              Write-Output "::warning::تعذّر التنزيل: $_"
+              return $false
+            }
+          }
+
+          $ok = $false
+          # (١) رابط إصدار مثبّت
+          $ok = Try-Download "https://download.documentfoundation.org/libreoffice/stable/25.8.2/win/x86_64/LibreOffice_25.8.2_Win_x86-64.msi"
+          # (٢) أحدث إصدار من قائمة المجلدات
+          if (-not $ok) {
+            try {
+              $listing = Invoke-WebRequest "https://download.documentfoundation.org/libreoffice/stable/" -UseBasicParsing -TimeoutSec 120
+              $vers = [regex]::Matches($listing.Content, '(\d+\.\d+\.\d+)/') |
+                ForEach-Object { $_.Groups[1].Value } | Sort-Object -Descending -Unique
+              foreach ($v in ($vers | Select-Object -First 3)) {
+                $ok = Try-Download "https://download.documentfoundation.org/libreoffice/stable/$v/win/x86_64/LibreOffice_${v}_Win_x86-64.msi"
+                if ($ok) { break }
+              }
+            } catch { Write-Output "::warning::تعذّر قراءة قائمة الإصدارات: $_" }
+          }
+          # (٣) مرآة أخرى
+          if (-not $ok) {
+            $ok = Try-Download "https://mirrors.dotsrc.org/tdf/libreoffice/stable/25.8.2/win/x86_64/LibreOffice_25.8.2_Win_x86-64.msi"
+          }
+
+          if (-not $ok) {
+            Write-Output "::warning::تعذّر تنزيل LibreOffice — ستُبنى الحزمة بدونه (23 عملية تعمل من 30)"
+            exit 0
+          }
+
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          $exe = $null
+          # (أ) استخراج إداري عبر msiexec مع مهلة
+          $msiProc = Start-Process msiexec.exe -ArgumentList "/a","$msi","/qn","TARGETDIR=$target" -PassThru
+          if (-not $msiProc.WaitForExit(900000)) {
+            Write-Output "::warning::انتهت مهلة الاستخراج الإداري"
+            Stop-Process -Id $msiProc.Id -Force -ErrorAction SilentlyContinue
           }
           $exe = Get-ChildItem $target -Recurse -Filter soffice.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          # (ب) فكّ محتوى MSI مباشرة
           if (-not $exe) {
-            Write-Output "الاستخراج الإداري لم ينتج soffice.exe — نجرّب فكّ محتوى MSI"
+            Write-Output "نفكّ محتوى MSI مباشرة"
             Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
-            $sevenZip = if ($env:SEVEN_ZIP) { $env:SEVEN_ZIP } else { Get-Content "$env:RUNNER_TEMP\sevenzip.txt" }
-            & $sevenZip x "$env:RUNNER_TEMP\lo.msi" "-o$target" -y | Out-Null
+            & $sevenZip x $msi "-o$target" -y | Out-Null
             $exe = Get-ChildItem $target -Recurse -Filter soffice.exe -ErrorAction SilentlyContinue | Select-Object -First 1
           }
-          if (-not $exe) { throw "soffice.exe غير موجود بعد كل المحاولات" }
+          if (-not $exe) {
+            Write-Output "::warning::لم يُعثر على soffice.exe بعد الاستخراج — الحزمة ستُبنى بدونه"
+            exit 0
+          }
           Write-Output "soffice: $($exe.FullName)"
           & $exe.FullName --version | Select-Object -First 2
+
 
       # ── ضبط صلاحيات ImageMagick (PDF/PS) ──────────────────────────
       - name: السماح بصيغ PDF في ImageMagick
@@ -272,6 +314,11 @@ jobs:
           if ($pdf) { $rows += Probe "poppler" $pdf.FullName "-v" } else { $rows += "poppler | مفقود" }
           if ($so) { $rows += Probe "libreoffice" $so.FullName "--version" } else { $rows += "libreoffice | مفقود" }
 
+          $operations = 30
+          if (-not $so) {
+            $operations = 24
+            Write-Output "::warning::LibreOffice مفقود: 6 عمليات مستندات/جداول/عروض لن تعمل"
+          }
           $size = [math]::Round((Get-ChildItem $env:ROOT_DIR -Recurse | Measure-Object Length -Sum).Sum / 1MB, 1)
           "size=$size" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Add-Content $env:GITHUB_STEP_SUMMARY "### محتوى الحزمة`n"
@@ -282,6 +329,7 @@ jobs:
             Add-Content $env:GITHUB_STEP_SUMMARY "| $($p[0].Trim()) | $($p[1].Trim()) |"
           }
           Add-Content $env:GITHUB_STEP_SUMMARY "`nالحجم الكلي: **$size م.ب**"
+          Add-Content $env:GITHUB_STEP_SUMMARY "`nالعمليات المتاحة: **$operations من 30**"
 
           $readme = @"
           تحويل — Convert (نسخة محمولة كاملة)
