@@ -1,7 +1,7 @@
 name: لقطات الواجهة
 
-# يبني التطبيق على ويندوز، يفتحه فعليًا، يلتقط لقطات للشاشات الأربع،
-# ثم يرفعها كأثر (artifact). يُشغَّل يدويًا أو عند تغيير هذا الملف.
+# يبني التطبيق على ويندوز، يفتحه فعليًا، يلتقط لقطات لعروض مختلفة،
+# ثم يحفظها في docs/screenshots داخل المستودع.
 on:
   workflow_dispatch:
   push:
@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   shots:
@@ -37,51 +36,69 @@ jobs:
           $root = $env:GITHUB_WORKSPACE
           $out  = Join-Path $root "screenshots"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-          $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-          "screen: $($screen.Width)x$($screen.Height)" | Write-Output
-
           $exe = Join-Path $root "app\build\windows\x64\runner\Release\convert.exe"
           "exe exists: $(Test-Path $exe)" | Write-Output
 
-          function Save-Shot($name) {
-            $bmp = New-Object System.Drawing.Bitmap($screen.Width, $screen.Height)
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+          public class Win {
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+            [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+            [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+            public struct RECT { public int Left, Top, Right, Bottom; }
+          }
+          "@
+          [Win]::SetProcessDPIAware() | Out-Null
+
+          function Shoot([System.Diagnostics.Process]$p, [string]$name) {
+            [Win]::ShowWindow($p.MainWindowHandle, 9) | Out-Null   # SW_RESTORE
+            [Win]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
+            Start-Sleep -Milliseconds 1200
+            $r = New-Object Win+RECT
+            if (-not [Win]::GetWindowRect($p.MainWindowHandle, [ref]$r)) { throw "no window rect" }
+            $w = $r.Right - $r.Left; $h = $r.Bottom - $r.Top
+            $bmp = New-Object System.Drawing.Bitmap($w, $h)
             $g = [System.Drawing.Graphics]::FromImage($bmp)
-            $g.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+            $g.CopyFromScreen($r.Left, $r.Top, 0, 0, (New-Object System.Drawing.Size($w, $h)))
             $bmp.Save((Join-Path $out $name), [System.Drawing.Imaging.ImageFormat]::Png)
             $g.Dispose(); $bmp.Dispose()
-            "saved $name" | Write-Output
+            "saved $name ($w x $h)" | Write-Output
           }
-
-          $proc = Start-Process -FilePath $exe -PassThru
-          Start-Sleep -Seconds 15
-          $running = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
-          "app alive: $([bool]$running)" | Write-Output
-          Save-Shot "00-initial.png"
-
-          $wshell = New-Object -ComObject wscript.shell
-          $null = $wshell.AppActivate($proc.Id)
-          Start-Sleep -Milliseconds 800
 
           $shots = @(
-            @{ key = "";   file = "01-workspace.png" },
-            @{ key = "^2"; file = "02-queue.png" },
-            @{ key = "^3"; file = "03-tools.png" },
-            @{ key = "^4"; file = "04-settings.png" }
+            @{ section = "workspace"; file = "01-workspace.png" },
+            @{ section = "queue";     file = "02-queue.png" },
+            @{ section = "tools";     file = "03-tools.png" },
+            @{ section = "settings";  file = "04-settings.png" }
           )
           foreach ($shot in $shots) {
-            if ($shot.key -ne "") { $wshell.SendKeys($shot.key); Start-Sleep -Seconds 3 }
-            $null = $wshell.AppActivate($proc.Id)
-            Start-Sleep -Milliseconds 700
-            Save-Shot $shot.file
+            $p = Start-Process -FilePath $exe -ArgumentList "--section=$($shot.section)" -PassThru
+            Start-Sleep -Seconds 10
+            if ($p.HasExited) { Write-Output "exit code $($p.ExitCode)"; throw "التطبيق خرج مبكرًا" }
+            Shoot $p $shot.file
+            Stop-Process -Id $p.Id -Force
+            Start-Sleep -Seconds 2
           }
 
-          # النسخة الثانية يجب أن تُظهر النافذة القائمة لا تفتح ثانية.
-          $before = (Get-Process convert -ErrorAction SilentlyContinue).Count
+          # الوضع الداكن: نغيّر إعداد النظام ثم نلتقط شاشة العمل.
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+          Set-ItemProperty -Path $key -Name AppsUseLightTheme -Value 0 -Type DWord
+          $p = Start-Process -FilePath $exe -ArgumentList "--section=workspace" -PassThru
+          Start-Sleep -Seconds 10
+          Shoot $p "05-dark.png"
+          Stop-Process -Id $p.Id -Force
+          Set-ItemProperty -Path $key -Name AppsUseLightTheme -Value 1 -Type DWord
+
+          # النسخة الثانية: يجب أن تُظهر النافذة القائمة لا تفتح ثانية.
+          $p = Start-Process -FilePath $exe -ArgumentList "--section=workspace" -PassThru
+          Start-Sleep -Seconds 8
           $second = Start-Process -FilePath $exe -PassThru
-          Start-Sleep -Seconds 6
-          $after = (Get-Process convert -ErrorAction SilentlyContinue).Count
-          "instances before=$before after=$after" | Write-Output
+          Start-Sleep -Seconds 5
+          $alive = (Get-Process convert -ErrorAction SilentlyContinue).Count
+          "instances with second launch: $alive" | Write-Output
           Get-Process convert -ErrorAction SilentlyContinue | Stop-Process -Force
 
           Get-ChildItem $out | ForEach-Object { "$($_.Name) $($_.Length) bytes" } | Write-Output
@@ -106,16 +123,17 @@ jobs:
           $files = Get-ChildItem "$env:GITHUB_WORKSPACE\screenshots" -Filter *.png -ErrorAction SilentlyContinue
           if (-not $files) { throw "لا توجد لقطات لحفظها" }
           foreach ($f in $files) {
+            $existing = gh api "repos/$repo/contents/docs/screenshots/$($f.Name)?ref=$branch" 2>$null | ConvertFrom-Json
             $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($f.FullName))
             $payload = @{
-              message = "docs: لقطة $($f.Name) من النسخة المبنية"
+              message = "docs: تحديث لقطة $($f.Name)"
               content = $b64
               branch  = $branch
-            } | ConvertTo-Json -Compress
+            }
+            if ($existing -and $existing.sha) { $payload.sha = $existing.sha }
             $payloadPath = Join-Path $env:RUNNER_TEMP "$($f.BaseName).json"
-            Set-Content -Path $payloadPath -Value $payload -Encoding utf8 -NoNewline
-            $path = "docs/screenshots/$($f.Name)"
-            gh api --method PUT "repos/$repo/contents/$path" --input $payloadPath | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "فشل حفظ $path" }
-            "saved $path" | Write-Output
+            Set-Content -Path $payloadPath -Value ($payload | ConvertTo-Json -Compress) -Encoding utf8 -NoNewline
+            gh api --method PUT "repos/$repo/contents/docs/screenshots/$($f.Name)" --input $payloadPath | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "فشل حفظ $($f.Name)" }
+            "saved $($f.Name)" | Write-Output
           }

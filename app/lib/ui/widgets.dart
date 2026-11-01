@@ -26,7 +26,9 @@ class GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final baseAlpha = context.isDark ? (hover ? 16 : 10) : (hover ? 250 : 219);
+    // في الوضع الفاتح نرفع عتامة البطاقة كي تبقى الحدود والظل مقروءين
+    // فوق الخلفية المتدرّجة الفاتحة.
+    final baseAlpha = context.isDark ? (hover ? 16 : 10) : (hover ? 252 : 235);
 
     final decoration = BoxDecoration(
       borderRadius: BorderRadius.circular(radius),
@@ -40,7 +42,9 @@ class GlassCard extends StatelessWidget {
             end: Alignment.bottomRight,
             colors: [
               Colors.white.withAlpha(baseAlpha),
-              Colors.white.withAlpha((baseAlpha * 0.55).round()),
+              Colors.white.withAlpha(
+                context.isDark ? (baseAlpha * 0.55).round() : baseAlpha,
+              ),
             ],
           ),
       boxShadow: [

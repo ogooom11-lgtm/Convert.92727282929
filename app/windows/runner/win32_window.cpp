@@ -226,8 +226,8 @@ Win32Window::MessageHandler(HWND hwnd,
       auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
       UINT dpi = ::GetDpiForWindow(hwnd);
       double scale = dpi == 0 ? 1.0 : dpi / 96.0;
-      info->ptMinTrackSize.x = Scale(940, scale);
-      info->ptMinTrackSize.y = Scale(640, scale);
+      info->ptMinTrackSize.x = Scale(880, scale);
+      info->ptMinTrackSize.y = Scale(600, scale);
       return 0;
     }
   }

@@ -8,16 +8,30 @@ import 'ui/theme.dart';
 ///
 /// التطبيق يفتح نافذة واحدة فقط: منع النسخ المتعددة مطبّق في طبقة ويندوز
 /// الأصلية (windows/runner/main.cpp) قبل إنشاء أي نافذة.
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   final state = await AppState.bootstrap();
-  runApp(ConvertApp(state: state));
+  runApp(ConvertApp(state: state, initialSection: _sectionFromArgs(args)));
+}
+
+/// يدعم `convert.exe --section=queue|tools|settings|workspace`
+/// (يُستخدم في لقطات الواجهة والاختبارات الآلية).
+AppSection? _sectionFromArgs(List<String> args) {
+  for (final arg in args) {
+    if (!arg.startsWith('--section=')) continue;
+    final value = arg.substring('--section='.length).trim();
+    for (final section in AppSection.values) {
+      if (section.name == value) return section;
+    }
+  }
+  return null;
 }
 
 class ConvertApp extends StatelessWidget {
-  const ConvertApp({super.key, required this.state});
+  const ConvertApp({super.key, required this.state, this.initialSection});
 
   final AppState state;
+  final AppSection? initialSection;
 
   @override
   Widget build(BuildContext context) {
@@ -41,7 +55,7 @@ class ConvertApp extends StatelessWidget {
               child: child ?? const SizedBox.shrink(),
             );
           },
-          home: AppShell(state: state),
+          home: AppShell(state: state, initialSection: initialSection),
         );
       },
     );

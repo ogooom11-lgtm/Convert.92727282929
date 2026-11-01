@@ -17,18 +17,23 @@ enum AppSection { workspace, queue, tools, settings }
 
 /// الهيكل: شريط جانبي ثابت + رأس + محتوى متحرك.
 class AppShell extends StatefulWidget {
-  const AppShell({super.key, required this.state});
+  const AppShell({super.key, required this.state, this.initialSection});
 
   final AppState state;
+
+  /// شاشة البداية (من وسيط سطر الأوامر --section=queue مثلًا).
+  final AppSection? initialSection;
 
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
 class _AppShellState extends State<AppShell> {
-  AppSection _section = AppSection.workspace;
+  late AppSection _section = widget.initialSection ?? AppSection.workspace;
   bool _sidebarExpanded = true;
+  bool _autoCollapsed = false;
   bool? _lastDark;
+
   late final AppState _state = widget.state;
 
   @override
@@ -37,7 +42,17 @@ class _AppShellState extends State<AppShell> {
     _state.addListener(_onQueueChanged);
     _state.queue.addListener(_onQueueChanged);
     _state.queue.onTaskFinished = _onTaskFinished;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncCaption());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _syncCaption();
+      // نبدأ بشريط مصغّر على النوافذ الضيقة بلا انتظار تفاعل.
+      if (MediaQuery.sizeOf(context).width < 1120) {
+        setState(() {
+          _sidebarExpanded = false;
+          _autoCollapsed = true;
+        });
+      }
+    });
   }
 
   @override
@@ -158,6 +173,22 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final state = _state;
+    final width = MediaQuery.sizeOf(context).width;
+    // الشريط الجانبي يتقلّص تلقائيًا عند ضيق النافذة، ويبقى قابلًا للتوسيع.
+    final narrow = width < 1120;
+    if (narrow && !_autoCollapsed) {
+      _autoCollapsed = true;
+      if (_sidebarExpanded) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() => _sidebarExpanded = false);
+        });
+      }
+    } else if (!narrow && _autoCollapsed) {
+      _autoCollapsed = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _sidebarExpanded = true);
+      });
+    }
     final isDark = Theme.of(context).brightness == Brightness.dark;
     if (isDark != _lastDark) {
       _lastDark = isDark;
@@ -279,7 +310,7 @@ class _Sidebar extends StatelessWidget {
       decoration: BoxDecoration(
         color: context.isDark
             ? Colors.white.withAlpha(9)
-            : Colors.white.withAlpha(191),
+            : Colors.white.withAlpha(242),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: context.borderColor),
         boxShadow: [
