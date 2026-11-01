@@ -165,9 +165,10 @@ bool FlutterWindow::OnCreate() {
             outcome = ::ShellExecuteW(nullptr, L"open", path.c_str(), nullptr,
                                       nullptr, SW_SHOWNORMAL);
           } else {
-            std::wstring args = L"/select,\"" + path + L"\"";
+            std::wstring select_args = L"/select,\"" + path + L"\"";
             outcome = ::ShellExecuteW(nullptr, L"open", L"explorer.exe",
-                                      args.c_str(), nullptr, SW_SHOWNORMAL);
+                                      select_args.c_str(), nullptr,
+                                      SW_SHOWNORMAL);
           }
           result->Success(flutter::EncodableValue(
               static_cast<int64_t>(reinterpret_cast<intptr_t>(outcome))));
