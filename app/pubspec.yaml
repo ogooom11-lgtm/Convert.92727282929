@@ -1,0 +1,30 @@
+name: convert
+description: "تحويل — تطبيق ويندوز لمعالجة وتحويل الملفات محليًا بالكامل."
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # نافذة اختيار الملفات الأصلية من ويندوز
+  file_selector: ^1.0.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  file_selector_platform_interface: ^2.6.2
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/app_icon.png
+  fonts:
+    - family: Cairo
+      fonts:
+        - asset: assets/fonts/Cairo.ttf

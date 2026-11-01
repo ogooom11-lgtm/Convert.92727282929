@@ -1,0 +1,12 @@
+# ملفات بناء فلاتر
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+*.iml
+.idea/
+.vscode/
+
+# مخرجات ويندوز
+app/windows/flutter/ephemeral/
+windows/flutter/ephemeral/

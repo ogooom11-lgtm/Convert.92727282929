@@ -1,0 +1,103 @@
+name: بناء نسخة ويندوز
+
+on:
+  push:
+    branches: [main, "arena/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  windows:
+    name: بناء التطبيق (ويندوز)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: تنزيل الحزم
+        run: flutter pub get
+
+      - name: تحليل الكود
+        shell: pwsh
+        run: |
+          flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 |
+            Tee-Object -FilePath analyze.log
+          $code = $LASTEXITCODE
+          Write-Output "analyze exit code: $code"
+          Get-Content analyze.log -Tail 30 | Add-Content $env:GITHUB_STEP_SUMMARY
+          if ($code -ne 0) { exit $code }
+
+      - name: الاختبارات
+        run: flutter test
+
+      - name: اختبار التكامل على ويندوز (نافذة حقيقية)
+        shell: pwsh
+        run: |
+          flutter test integration_test -d windows --reporter expanded 2>&1 |
+            Tee-Object -FilePath integration-test.log
+          exit $LASTEXITCODE
+
+      - name: بناء الإصدار
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          flutter build windows --release --verbose *> build-verbose.log
+          $code = $LASTEXITCODE
+          New-Item -ItemType File -Path build-tail.txt -Force | Out-Null
+          "=== exit: $code ===" | Out-File -FilePath build-tail.txt -Encoding utf8
+          Get-Content build-verbose.log -Tail 150 | Out-File -FilePath build-tail.txt -Append -Encoding utf8
+          if (Test-Path integration-test.log) {
+            "=== سجل اختبار التكامل ===" | Out-File -FilePath build-tail.txt -Append -Encoding utf8
+            Get-Content integration-test.log -Tail 80 | Out-File -FilePath build-tail.txt -Append -Encoding utf8
+          }
+          Get-Content build-tail.txt
+          # ملخص الخطأ يظهر في صفحة التشغيل مباشرة (يُقرأ حتى لو كانت
+          # السجلات التفصيلية محجوبة).
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### نهاية سجل البناء"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '``````'
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value (Get-Content build-tail.txt -Raw)
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '``````'
+          exit $code
+
+
+      # سجلات Actions محجوبة عن بعض الشبكات، لذا ننشر ملخص الفشل في تعليق
+      # على الطلب حتى يبقى سبب الخطأ مقروءًا من صفحة GitHub.
+      - name: نشر ملخص الفشل
+        if: failure()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $fence = [char]0x0060 + [char]0x0060 + [char]0x0060
+          $lines = @("### فشل بناء ويندوز", "", $fence)
+          if (Test-Path analyze.log) {
+            $lines += "**نتيجة التحليل (آخر ٣٠ سطرًا):**"
+            $lines += (Get-Content analyze.log -Tail 30)
+            $lines += ""
+          }
+          if (Test-Path build-tail.txt) {
+            $lines += (Get-Content build-tail.txt -Tail 60)
+          } elseif (-not (Test-Path analyze.log)) {
+            $lines += "لا يوجد سجل محفوظ."
+          }
+          $lines += $fence
+          $lines | Out-File -Encoding utf8 pr-comment.md
+          gh pr comment 1 --body-file pr-comment.md
+
+      - name: رفع الناتج
+        uses: actions/upload-artifact@v4
+        with:
+          name: convert-windows-x64
+          path: app/build/windows/x64/runner/Release/
+          if-no-files-found: error

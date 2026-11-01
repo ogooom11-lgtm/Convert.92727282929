@@ -1,0 +1,144 @@
+name: لقطات الواجهة
+
+# يبني التطبيق على ويندوز، يفتحه فعليًا، يلتقط لقطات لعروض مختلفة،
+# ثم يحفظها في docs/screenshots داخل المستودع.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/screenshots.yml
+      - app/lib/ui/shell.dart
+      - app/lib/ui/pages/selftest_page.dart
+
+permissions:
+  contents: write
+
+jobs:
+  shots:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - run: flutter build windows --release
+
+      - name: تشغيل التطبيق والتقاط الشاشات
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          $root = $env:GITHUB_WORKSPACE
+          $out  = Join-Path $root "screenshots"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $exe = Join-Path $root "app\build\windows\x64\runner\Release\convert.exe"
+          "exe exists: $(Test-Path $exe)" | Write-Output
+
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+          public class Win {
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+            [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+            [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+            public struct RECT { public int Left, Top, Right, Bottom; }
+          }
+          "@
+          [Win]::SetProcessDPIAware() | Out-Null
+
+          function Shoot([System.Diagnostics.Process]$p, [string]$name) {
+            [Win]::ShowWindow($p.MainWindowHandle, 9) | Out-Null   # SW_RESTORE
+            [Win]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
+            Start-Sleep -Milliseconds 1200
+            $r = New-Object Win+RECT
+            if (-not [Win]::GetWindowRect($p.MainWindowHandle, [ref]$r)) { throw "no window rect" }
+            $w = $r.Right - $r.Left; $h = $r.Bottom - $r.Top
+            $bmp = New-Object System.Drawing.Bitmap($w, $h)
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.CopyFromScreen($r.Left, $r.Top, 0, 0, (New-Object System.Drawing.Size($w, $h)))
+            $bmp.Save((Join-Path $out $name), [System.Drawing.Imaging.ImageFormat]::Png)
+            $g.Dispose(); $bmp.Dispose()
+            "saved $name ($w x $h)" | Write-Output
+          }
+
+          $shots = @(
+            @{ section = "workspace"; file = "01-workspace.png" },
+            @{ section = "queue";     file = "02-queue.png" },
+            @{ section = "tools";     file = "03-tools.png" },
+            @{ section = "selftest";  file = "07-selftest.png" },
+            @{ section = "settings";  file = "04-settings.png" },
+            @{ section = "settings";  file = "06-settings-dark.png" },
+            @{ section = "selftest";  file = "08-selftest-dark.png" }
+          )
+          foreach ($shot in $shots) {
+            $p = Start-Process -FilePath $exe -ArgumentList "--section=$($shot.section)" -PassThru
+            Start-Sleep -Seconds 10
+            if ($p.HasExited) { Write-Output "exit code $($p.ExitCode)"; throw "التطبيق خرج مبكرًا" }
+            Shoot $p $shot.file
+            Stop-Process -Id $p.Id -Force
+            Start-Sleep -Seconds 2
+          }
+
+          # الوضع الداكن: نغيّر إعداد النظام ثم نلتقط شاشة العمل.
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+          Set-ItemProperty -Path $key -Name AppsUseLightTheme -Value 0 -Type DWord
+          $p = Start-Process -FilePath $exe -ArgumentList "--section=workspace" -PassThru
+          Start-Sleep -Seconds 10
+          Shoot $p "05-dark.png"
+          Stop-Process -Id $p.Id -Force
+          Set-ItemProperty -Path $key -Name AppsUseLightTheme -Value 1 -Type DWord
+
+          # النسخة الثانية: يجب أن تُظهر النافذة القائمة لا تفتح ثانية.
+          $p = Start-Process -FilePath $exe -ArgumentList "--section=workspace" -PassThru
+          Start-Sleep -Seconds 8
+          $second = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 5
+          $alive = (Get-Process convert -ErrorAction SilentlyContinue).Count
+          "instances with second launch: $alive" | Write-Output
+          Get-Process convert -ErrorAction SilentlyContinue | Stop-Process -Force
+
+          Get-ChildItem $out | ForEach-Object { "$($_.Name) $($_.Length) bytes" } | Write-Output
+          "count=$((Get-ChildItem $out).Count)" | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: screenshots/
+          if-no-files-found: error
+
+      # نحفظ اللقطات داخل المستودع حتى تُرى من صفحة GitHub مباشرة.
+      - name: حفظ اللقطات في المستودع
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $repo = "${{ github.repository }}"
+          $branch = "${{ github.ref_name }}"
+          $files = Get-ChildItem "$env:GITHUB_WORKSPACE\screenshots" -Filter *.png -ErrorAction SilentlyContinue
+          if (-not $files) { throw "لا توجد لقطات لحفظها" }
+          foreach ($f in $files) {
+            $existing = gh api "repos/$repo/contents/docs/screenshots/$($f.Name)?ref=$branch" 2>$null | ConvertFrom-Json
+            $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($f.FullName))
+            $payload = @{
+              message = "docs: تحديث لقطة $($f.Name)"
+              content = $b64
+              branch  = $branch
+            }
+            if ($existing -and $existing.sha) { $payload.sha = $existing.sha }
+            $payloadPath = Join-Path $env:RUNNER_TEMP "$($f.BaseName).json"
+            Set-Content -Path $payloadPath -Value ($payload | ConvertTo-Json -Compress) -Encoding utf8 -NoNewline
+            gh api --method PUT "repos/$repo/contents/docs/screenshots/$($f.Name)" --input $payloadPath | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "فشل حفظ $($f.Name)" }
+            "saved $($f.Name)" | Write-Output
+          }
