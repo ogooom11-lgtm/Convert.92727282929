@@ -7,6 +7,8 @@ on:
   push:
     paths:
       - .github/workflows/screenshots.yml
+      - app/lib/ui/shell.dart
+      - app/lib/ui/pages/selftest_page.dart
 
 permissions:
   contents: write
