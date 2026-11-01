@@ -13,8 +13,10 @@ void main() {
       expect(categoryOf('xyz'), isNull);
     });
 
-    test('عدد الصيغ المدعومة لا يقل عن ٩٥', () {
-      expect(kExtensions.length, greaterThanOrEqualTo(95));
+    test('عدد الصيغ المدعومة ٩٠ موزّعة على تسع فئات', () {
+      expect(kExtensions.length, 90);
+      final categories = kExtensions.values.toSet();
+      expect(categories.length, FileCategory.values.length);
     });
 
     test('العمليات ثلاثون بالضبط وبمعرّفات فريدة', () {

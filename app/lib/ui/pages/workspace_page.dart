@@ -187,7 +187,7 @@ class _DropZoneState extends State<_DropZone> {
                 ),
                 const SizedBox(height: 18),
                 Text(
-                  '٩٥ صيغة · كل شيء يعمل على جهازك بلا إنترنت',
+                  '٩٠ صيغة · ٣٠ عملية · كل شيء يعمل على جهازك بلا إنترنت',
                   style: context.theme.textTheme.labelMedium,
                 ),
               ],
