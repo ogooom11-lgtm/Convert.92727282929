@@ -36,11 +36,32 @@ jobs:
           $ErrorActionPreference = "Continue"
           flutter build windows --release --verbose *> build-verbose.log
           $code = $LASTEXITCODE
-          "=== exit: $code ===" | Out-File build-tail.txt
-          Get-Content build-verbose.log -Tail 150 | Out-File build-tail.txt -Append
+          New-Item -ItemType File -Path build-tail.txt -Force | Out-Null
+          "=== exit: $code ===" | Out-File -FilePath build-tail.txt -Encoding utf8
+          Get-Content build-verbose.log -Tail 150 | Out-File -FilePath build-tail.txt -Append -Encoding utf8
           Get-Content build-tail.txt
           Write-Output "::error::BUILD_EXIT_$code"
 
+
+      # سجلات Actions محجوبة عن بعض الشبكات، لذا ننشر ملخص الفشل في تعليق
+      # على الطلب حتى يبقى سبب الخطأ مقروءًا من صفحة GitHub.
+      - name: نشر ملخص الفشل
+        if: failure()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $fence = [char]0x0060 + [char]0x0060 + [char]0x0060
+          $lines = @("### فشل بناء ويندوز", "", $fence)
+          if (Test-Path build-tail.txt) {
+            $tail = Get-Content build-tail.txt -Tail 120
+            $lines += $tail
+          } else {
+            $lines += "لا يوجد سجل محفوظ."
+          }
+          $lines += $fence
+          $lines | Out-File -Encoding utf8 pr-comment.md
+          gh pr comment 1 --body-file pr-comment.md
 
       - name: رفع الناتج
         uses: actions/upload-artifact@v4
