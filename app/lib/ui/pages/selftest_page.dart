@@ -37,25 +37,17 @@ class SelfTestPage extends StatelessWidget {
                   color: passed == total ? AppColors.success : AppColors.warning,
                   dense: true,
                 ),
-              const Spacer(),
-              GradientButton(
-                label: running
-                    ? 'جارٍ الفحص…'
-                    : (results.isEmpty ? 'ابدأ الفحص الشامل' : 'أعد الفحص'),
-                icon: running ? Icons.hourglass_top_rounded : Icons.science_rounded,
-                dense: true,
-                onPressed: running ? null : state.runSelfTest,
-              ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
-            'بدل قراءة «رقم الإصدار»، يأخذ كل أداة ويجعلها تنتج ملفًا حقيقيًا: '
-            'صورة عربية الاسم، ملف PS، PDF، فيديو تجريبي، أرشيف مُستخرج، '
-            'ومستند عربي إلى PDF. نجاح الفحص يعني أن العمليات ستنجح.',
+            'كل أداة تُنتج ملفًا حقيقيًا هنا: صورة، PS، PDF، فيديو، أرشيف، '
+            'ومستند عربي. النجاح يعني أن العمليات ستعمل.',
             style: context.theme.textTheme.bodySmall,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           GlassCard(
             padding: const EdgeInsets.all(18),
             child: Row(
@@ -87,6 +79,20 @@ class SelfTestPage extends StatelessWidget {
                         value: results.isEmpty ? 0 : passed / total,
                         height: 7,
                       ),
+                      const SizedBox(height: 14),
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: GradientButton(
+                          label: running
+                              ? 'جارٍ الفحص…'
+                              : (results.isEmpty ? 'ابدأ الفحص الشامل' : 'أعد الفحص'),
+                          icon: running
+                              ? Icons.hourglass_top_rounded
+                              : Icons.science_rounded,
+                          dense: true,
+                          onPressed: running ? null : state.runSelfTest,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -96,16 +102,43 @@ class SelfTestPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          for (final tool in ToolId.values)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _ResultRow(
-                tool: tool,
-                result: results[tool],
-                running: running && state.testingTool == tool,
-                awaiting: running && results[tool] == null,
-              ),
-            ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = constraints.maxWidth >= 760 ? 2 : 1;
+              if (columns == 1) {
+                return Column(
+                  children: [
+                    for (final tool in ToolId.values)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _ResultRow(
+                          tool: tool,
+                          result: results[tool],
+                          running: running && state.testingTool == tool,
+                          awaiting: running && results[tool] == null,
+                        ),
+                      ),
+                  ],
+                );
+              }
+              return Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  for (final tool in ToolId.values)
+                    SizedBox(
+                      width: (constraints.maxWidth - 12) / 2,
+                      child: _ResultRow(
+                        tool: tool,
+                        result: results[tool],
+                        running: running && state.testingTool == tool,
+                        awaiting: running && results[tool] == null,
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
           const SizedBox(height: 6),
           GlassCard(
             padding: const EdgeInsets.all(16),
